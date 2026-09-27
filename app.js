@@ -6,8 +6,8 @@
    la seguridad real la da RLS (ver schema.sql). Nunca pongas aquí la
    service_role key.
    ============================================================ */
-const SUPABASE_URL = "PEGA_AQUI_TU_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "PEGA_AQUI_TU_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://nckixbdxifkibzczpiox.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_hPMA7Elf8N02liO33NyGgg_Idkecirf";
 const TZ = "America/Caracas";
 
 const { createClient } = supabase;
