@@ -1,4 +1,4 @@
-/* ============================================================
+//* ============================================================
    COCHI ADMINISTRACIÓN — app.js
    Reemplaza los dos valores de abajo por los de TU proyecto Supabase
    (Project Settings → API → Project URL / anon public key).
@@ -6,8 +6,8 @@
    la seguridad real la da RLS (ver schema.sql). Nunca pongas aquí la
    service_role key.
    ============================================================ */
-const SUPABASE_URL = "https://nckixbdxifkibzczpiox.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_hPMA7Elf8N02liO33NyGgg_Idkecirf";
+const SUPABASE_URL = "PEGA_AQUI_TU_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "PEGA_AQUI_TU_SUPABASE_ANON_KEY";
 const TZ = "America/Caracas";
 
 const { createClient } = supabase;
@@ -35,6 +35,7 @@ function todayCaracas(){ return new Date().toLocaleDateString("en-CA",{timeZone:
 function dateCaracas(ts){ return ts ? new Date(ts).toLocaleDateString("en-CA",{timeZone:TZ}) : ""; }
 function fmtDate(ts){ return ts ? new Date(ts).toLocaleDateString("es-VE",{timeZone:TZ}) : ""; }
 function fmtTime(ts){ return ts ? new Date(ts).toLocaleTimeString("es-VE",{timeZone:TZ,hour:"2-digit",minute:"2-digit"}) : ""; }
+function escapeHtml(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
 function toast(msg, isError){
   let t = document.getElementById("toast");
@@ -492,7 +493,7 @@ async function saveOrder(){
       number:created.order_number, date:fmtDate(new Date().toISOString()), time:fmtTime(new Date().toISOString()),
       customerName:cust?cust.name:"", customerPhone:cust?cust.phone:"", customerAddr:cust?cust.address:"",
       items:state.orderCart.slice(), subtotal, delivery: zone?Number(zone.cost):0, discount,
-      total: subtotal+(zone?Number(zone.cost):0)-discount, payment, rate: cache.config.exchange_rate
+      total: subtotal+(zone?Number(zone.cost):0)-discount, payment, rate: cache.config.exchange_rate, notes
     };
     await Promise.all([loadOrdersAndItems(), loadProducts()]);
     state.orderCart=[]; state.orderCustomer=null; state.orderZone=""; state.orderDiscount=0; state.orderNotes="";
@@ -506,9 +507,13 @@ async function saveOrder(){
 function ticketHtml(o){
   const c=cache.config;
   const bs=n=>Math.round(n*o.rate).toLocaleString("es-VE");
+  const hasNotes = o.notes && o.notes.trim();
+  const notesBlock = hasNotes ? `
+    <div class="c"><b>⚠️ NOTA PARA COCINA</b></div>
+    <div style="white-space:pre-wrap;font-weight:bold;text-align:center;margin:4px 0">${escapeHtml(o.notes.trim())}</div><hr>` : "";
   return `<div class="c"><b>${c.name}</b><br>${c.phone||""}<br>${c.address||""}</div><hr>
     Orden #${o.number}<br>${o.date} ${o.time||""}<br>Cliente: ${o.customerName}<br>Tel: ${o.customerPhone||""}<br>${o.customerAddr?("Dir: "+o.customerAddr+"<br>"):""}<hr>
-    ${o.items.map(l=>`<div class="row"><span>${l.qty}x ${l.name}</span><span>$${(l.price*l.qty).toFixed(2)}</span></div>`).join("")}<hr>
+    ${o.items.map(l=>`<div class="row"><span>${l.qty}x ${l.name}</span><span>$${(l.price*l.qty).toFixed(2)}</span></div>`).join("")}<hr>${notesBlock}
     <div class="row"><span>Subtotal</span><span>$${o.subtotal.toFixed(2)}</span></div>
     <div class="row"><span>Delivery</span><span>$${o.delivery.toFixed(2)}</span></div>
     <div class="row"><span>Descuento</span><span>-$${o.discount.toFixed(2)}</span></div>
@@ -536,7 +541,7 @@ async function openTicketForOrder(o){
     const items = data.map(it=>({name:it.product_name, price:Number(it.price), qty:it.quantity}));
     showTicketPreview({ number:o.order_number, date:fmtDate(o.order_date), time:fmtTime(o.order_date),
       customerName:o.customers?o.customers.name:"", customerPhone:o.customers?o.customers.phone:"", customerAddr:o.customers?o.customers.address:"",
-      items, subtotal:Number(o.subtotal), delivery:Number(o.delivery_cost), discount:Number(o.discount), payment:o.payment_method, rate:Number(o.exchange_rate) });
+      items, subtotal:Number(o.subtotal), delivery:Number(o.delivery_cost), discount:Number(o.discount), payment:o.payment_method, rate:Number(o.exchange_rate), notes:o.notes });
   }catch(e){ toast(friendlyError(e), true); }
 }
 
