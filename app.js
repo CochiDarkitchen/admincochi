@@ -50,7 +50,7 @@ function friendlyError(e){
   if(msg.includes("no encontrado")) return msg;
   if(msg.toLowerCase().includes("invalid login")) return "Correo o contraseña incorrectos";
   if(msg.toLowerCase().includes("failed to fetch")) return "Sin conexión a internet. Intenta de nuevo.";
-  return "Ocurrió un error al procesar la información. Intenta nuevamente.";
+  return "Ocurrió un error al procesar la información. Intenta nuevamente." + (msg ? (" ("+msg+")") : "");
 }
 
 /* ---------- capa de datos (Supabase) ---------- */
