@@ -37,6 +37,30 @@ function fmtDate(ts){ return ts ? new Date(ts).toLocaleDateString("es-VE",{timeZ
 function fmtTime(ts){ return ts ? new Date(ts).toLocaleTimeString("es-VE",{timeZone:TZ,hour:"2-digit",minute:"2-digit"}) : ""; }
 function escapeHtml(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
+function lighten(hex, amt){
+  hex = (hex||"#1c1a17").replace('#','');
+  if(hex.length===3) hex = hex.split('').map(c=>c+c).join('');
+  const num = parseInt(hex,16) || 0;
+  let r=(num>>16)+amt, g=((num>>8)&0xff)+amt, b=(num&0xff)+amt;
+  r=Math.max(0,Math.min(255,r)); g=Math.max(0,Math.min(255,g)); b=Math.max(0,Math.min(255,b));
+  return "#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+function applyTheme(){
+  const c = cache.config || {};
+  const bg = c.color_bg || "#1c1a17";
+  const accent = c.color_accent || "#e8a33d";
+  const root = document.documentElement.style;
+  root.setProperty("--bg", bg);
+  root.setProperty("--bg2", lighten(bg, 12));
+  root.setProperty("--bg3", lighten(bg, 22));
+  root.setProperty("--border", lighten(bg, 34));
+  root.setProperty("--accent", accent);
+  root.setProperty("--accent-d", lighten(accent, -25));
+}
+function logoHtml(size){
+  return cache.config.logo_url ? `<img src="${escapeHtml(cache.config.logo_url)}" alt="logo" style="max-height:${size}px;display:block">` : `<h1>${escapeHtml(cache.config.name||"COCHI")}</h1>`;
+}
+
 function toast(msg, isError){
   let t = document.getElementById("toast");
   if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
@@ -84,7 +108,7 @@ async function loadExpenses(){
 }
 async function loadProviders(){ cache.providers = await Api.list("providers",{col:"name",asc:true}); }
 async function loadZones(){ cache.zones = await Api.list("delivery_zones",{col:"name",asc:true}); }
-async function loadConfig(){ const {data,error}=await sb.from("config").select("*").eq("id",1).single(); if(error) throw error; cache.config=data; }
+async function loadConfig(){ const {data,error}=await sb.from("config").select("*").eq("id",1).single(); if(error) throw error; cache.config=data; applyTheme(); }
 async function loadAll(){ await Promise.all([loadProducts(),loadCustomers(),loadOrdersAndItems(),loadExpenses(),loadProviders(),loadZones(),loadConfig()]); }
 
 let realtimeStarted = false;
@@ -118,7 +142,7 @@ function render(){
 
 function loginView(){
   return `<div id="login"><div class="login-box">
-    <h1>COCHI</h1><p>Panel de administración</p>
+    ${logoHtml(56)}<p>Panel de administración</p>
     <div class="field"><label>Correo</label><input id="lu" type="email" placeholder="admin@cochi.com"></div>
     <div class="field"><label>Contraseña</label><input id="lp" type="password" placeholder="••••••"></div>
     <button class="btn-primary" id="lbtn" style="width:100%">Iniciar sesión</button>
@@ -148,7 +172,7 @@ function shellView(){
   const body = (views[state.route]||dashboardView)();
   return `<div id="shell">
     <div id="sidebar">
-      <h1>COCHI</h1><div class="tag">Administración</div>
+      ${logoHtml(36)}<div class="tag">Administración</div>
       ${NAV.map(([k,l])=>`<button class="nav-item ${state.route===k?'active':''}" data-nav="${k}">${l}</button>`).join("")}
       <button class="btn-ghost" id="logout">Cerrar sesión</button>
     </div>
@@ -338,7 +362,7 @@ function orderBuilderHtml(){
    <div>
     <div class="panel" style="padding:14px">
       <div style="color:var(--dim);font-size:13px;margin-bottom:8px">Carrito</div>
-      ${state.orderCart.map((l,i)=>`<div class="cart-line"><span>${l.name}</span><span class="qty-ctrl"><button data-qty="-${i}">−</button>${l.qty}<button data-qty="${i}">+</button> ${fmt$(l.price*l.qty)}</span></div>`).join("") || '<div style="color:var(--dim);font-size:13px">Agrega productos del panel izquierdo</div>'}
+      ${state.orderCart.map((l,i)=>`<div class="cart-line"><span>${l.name}</span><span class="qty-ctrl"><button data-dec="${i}">−</button>${l.qty}<button data-inc="${i}">+</button> ${fmt$(l.price*l.qty)}</span></div>`).join("") || '<div style="color:var(--dim);font-size:13px">Agrega productos del panel izquierdo</div>'}
       <div style="margin-top:12px">
         <div class="summary-line"><span>Subtotal</span><span>${fmt$(subtotal)}</span></div>
         <div class="summary-line"><span>Delivery</span><span>${fmt$(zone.cost)}</span></div>
@@ -364,6 +388,14 @@ function configView(){
     <div style="color:var(--dim);font-size:14px;margin-bottom:12px">Moneda</div>
     <div class="field" style="max-width:220px"><label>Tasa (1 USD = ? Bs)</label><input id="c-rate" type="number" step="0.01" value="${c.exchange_rate}"></div>
     <div style="font-size:12px;color:var(--dim)">Las órdenes ya creadas guardan su propia tasa y no cambian.</div>
+  </div>
+  <div class="panel" style="padding:20px;margin-bottom:18px">
+    <div style="color:var(--dim);font-size:14px;margin-bottom:12px">Apariencia</div>
+    <div class="field"><label>Logo (pega el enlace de una imagen ya subida a internet — opcional)</label><input id="c-logo" value="${c.logo_url||""}" placeholder="https://..."></div>
+    <div class="row2">
+      <div class="field"><label>Color de fondo</label><input id="c-bg" type="color" value="${c.color_bg||'#1c1a17'}" style="padding:4px;height:42px"></div>
+      <div class="field"><label>Color principal (botones)</label><input id="c-accent" type="color" value="${c.color_accent||'#e8a33d'}" style="padding:4px;height:42px"></div>
+    </div>
   </div>
   <button class="btn-primary" id="saveConfig" style="margin-bottom:18px">Guardar configuración</button>
   <div class="panel" style="padding:20px">
@@ -455,10 +487,15 @@ function wireModal(name){
       if(line) line.qty++; else state.orderCart.push({productId:p.id,name:p.name,price:Number(p.price),qty:1});
       refreshOrderModal();
     });
-    document.querySelectorAll("[data-qty]").forEach(b=>b.onclick=()=>{
-      const idx=parseInt(b.dataset.qty); const i=Math.abs(idx);
-      state.orderCart[i].qty += idx<0?-1:1;
+    document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=()=>{
+      const i=parseInt(b.dataset.dec);
+      state.orderCart[i].qty -= 1;
       if(state.orderCart[i].qty<=0) state.orderCart.splice(i,1);
+      refreshOrderModal();
+    });
+    document.querySelectorAll("[data-inc]").forEach(b=>b.onclick=()=>{
+      const i=parseInt(b.dataset.inc);
+      state.orderCart[i].qty += 1;
       refreshOrderModal();
     });
     document.getElementById("save-order").onclick=saveOrder;
@@ -541,7 +578,7 @@ async function openTicketForOrder(o){
     const items = data.map(it=>({name:it.product_name, price:Number(it.price), qty:it.quantity}));
     showTicketPreview({ number:o.order_number, date:fmtDate(o.order_date), time:fmtTime(o.order_date),
       customerName:o.customers?o.customers.name:"", customerPhone:o.customers?o.customers.phone:"", customerAddr:o.customers?o.customers.address:"",
-      items, subtotal:Number(o.subtotal), delivery:Number(o.delivery_cost), discount:Number(o.discount), payment:o.payment_method, rate:Number(o.exchange_rate), notes:o.notes });
+      items, subtotal:Number(o.subtotal), delivery:Number(o.delivery_cost), discount:Number(o.discount), total:Number(o.total), payment:o.payment_method, rate:Number(o.exchange_rate), notes:o.notes });
   }catch(e){ toast(friendlyError(e), true); }
 }
 
@@ -568,7 +605,7 @@ document.addEventListener("click", async e=>{
   if(t.dataset.ticket){ const o=cache.orders.find(x=>x.id===t.dataset.ticket); if(o) openTicketForOrder(o); }
 
   if(t.id==="saveConfig"){
-    const val={name:document.getElementById("c-name").value, phone:document.getElementById("c-phone").value, address:document.getElementById("c-addr").value, exchange_rate:parseFloat(document.getElementById("c-rate").value)||cache.config.exchange_rate};
+    const val={name:document.getElementById("c-name").value, phone:document.getElementById("c-phone").value, address:document.getElementById("c-addr").value, exchange_rate:parseFloat(document.getElementById("c-rate").value)||cache.config.exchange_rate, logo_url:document.getElementById("c-logo").value.trim(), color_bg:document.getElementById("c-bg").value, color_accent:document.getElementById("c-accent").value};
     try{ await Api.update("config",1,val); await loadConfig(); render(); toast("Configuración guardada"); }catch(err){ toast(friendlyError(err), true); }
   }
   if(t.id==="addZone"){ try{ await Api.insert("delivery_zones",{name:"Nueva zona",cost:0,active:true}); await loadZones(); render(); }catch(err){ toast(friendlyError(err), true); } }
