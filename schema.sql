@@ -54,6 +54,10 @@ create table if not exists config (
   updated_at timestamptz not null default now(),
   constraint config_singleton check (id = 1)
 );
+alter table config add column if not exists logo_url text;
+alter table config add column if not exists color_bg text not null default '#1c1a17';
+alter table config add column if not exists color_accent text not null default '#e8a33d';
+
 create trigger trg_config_updated before update on config
   for each row execute function set_updated_at();
 insert into config (id, name, phone, address, exchange_rate)
@@ -98,6 +102,7 @@ create trigger trg_customers_updated before update on customers
 -- TABLA: orders (órdenes) — order_number vía secuencia (seguro entre dispositivos)
 -- ============================================================
 create sequence if not exists order_number_seq start 1001;
+grant usage, select on sequence order_number_seq to authenticated;
 
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
