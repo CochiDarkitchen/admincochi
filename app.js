@@ -229,7 +229,7 @@ function productosView(){
   ${items.map(p=>`<tr><td>${p.name}</td><td>${p.category||"—"}</td><td>${fmt$(p.price)} <span style="color:var(--dim)">/ ${fmtBs(p.price)}</span></td>
     <td>${p.stock===null||p.stock===undefined?"—":p.stock}</td>
     <td><span class="badge ${p.available?'b-completada':'b-cancelada'}">${p.available?'Disponible':'No disponible'}</span></td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-prod="${p.id}">Editar</button> <button class="btn-danger btn-sm" data-del-prod="${p.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="6" class="empty">No hay productos</td></tr>'}
+    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-prod="${p.id}">Editar</button> <button class="btn-danger btn-sm" data-del-prod="${p.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="7" class="empty">No hay productos</td></tr>'}
   </tbody></table></div>`;
 }
 function productFormHtml(p){
@@ -294,9 +294,9 @@ function gastosView(){
   return `<div class="topbar"><h2>Gastos</h2><button class="btn-primary" id="newExp">+ Nuevo gasto</button></div>
   <div class="cards" style="margin-bottom:16px"><div class="card"><div class="label">Gastos del mes</div><div class="val">${fmt$(totalMes)}</div></div></div>
   <div class="toolbar"><input id="pSearch" placeholder="Buscar por descripción o proveedor..." value="${state.search}"></div>
-  <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto</th><th></th></tr></thead><tbody>
-  ${items.map(e=>`<tr><td>${e.expense_date}</td><td>${e.category}</td><td>${e.description}</td><td>${e.providers?e.providers.name:"—"}</td><td>${fmt$(e.amount)}</td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="6" class="empty">No hay gastos registrados</td></tr>'}
+  <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto Bs</th><th>USD</th><th></th></tr></thead><tbody>  ${items.map(e=>`<tr><td>${e.expense_date}</td><td>${e.category}</td><td>${e.description}</td><td>${e.providers?e.providers.name:"—"}</td><td>Bs. ${Number(e.amount_bs||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td>
+<td>${fmt$(e.amount)}</td>
+    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="7" class="empty">No hay gastos registrados</td></tr>'}
   </tbody></table></div>`;
 }
 function expenseFormHtml(e){
@@ -308,9 +308,24 @@ function expenseFormHtml(e){
   </div>
   <div class="field"><label>¿En qué se gastó?</label><input id="f-desc" value="${e.description}" placeholder="Ej: compra de pollo, gas, empaques..."></div>
   <div class="row2">
-    <div class="field"><label>Proveedor (opcional)</label><select id="f-provider"><option value="">Ninguno</option>${cache.providers.map(p=>`<option value="${p.id}" ${e.provider_id===p.id?"selected":""}>${p.name}</option>`).join("")}</select></div>
-    <div class="field"><label>Monto (USD)</label><input id="f-amount" type="number" step="0.01" value="${e.amount}"></div>
+  <div class="field"><label>Proveedor (opcional)</label><select id="f-provider"><option value="">Ninguno</option>${cache.providers.map(p=>`<option value="${p.id}" ${e.provider_id===p.id?"selected":""}>${p.name}</option>`).join("")}</select></div>
+  <div class="field">
+    <label>Monto gastado (Bs)</label>
+    <input id="f-amount-bs" type="number" step="0.01" min="0.01" value="${e.amount_bs ?? ""}" placeholder="Ej: 8570">
   </div>
+</div>
+
+<div class="row2">
+  <div class="field">
+    <label>Tasa del momento (Bs/$)</label>
+    <input id="f-rate" type="number" step="0.01" min="0.01" value="${e.exchange_rate ?? cache.config.exchange_rate}" placeholder="Ej: 857">
+  </div>
+
+  <div class="field">
+    <label>Equivalente en USD</label>
+    <input id="f-amount" type="number" step="0.01" value="${e.amount ? Number(e.amount).toFixed(2) : ""}" readonly style="opacity:.7">
+  </div>
+</div>
   <div class="field"><label>Notas</label><textarea id="f-notes" rows="2">${e.notes||""}</textarea></div>
   <div class="modal-actions"><button class="btn-ghost" id="cancel">Cancelar</button><button class="btn-primary" id="save">Guardar</button></div>`;
 }
@@ -469,10 +484,29 @@ function wireModal(name){
   if(name==="exp"){
     saveBtn.onclick = busySave(saveBtn, async ()=>{
       const provId=document.getElementById("f-provider").value;
-      const val={expense_date:document.getElementById("f-date").value||todayCaracas(), category:document.getElementById("f-cat").value, description:document.getElementById("f-desc").value.trim(), provider_id:provId||null, amount:parseFloat(document.getElementById("f-amount").value)||0, notes:document.getElementById("f-notes").value.trim()};
-      if(!val.description){ toast("Describe en qué se gastó", true); throw new Error("__validation"); }
-      if(val.amount<=0){ toast("El monto debe ser mayor a 0", true); throw new Error("__validation"); }
-      if(state.editingExp) await Api.update("expenses", state.editingExp.id, val); else await Api.insert("expenses", val);
+const amountBs=parseFloat(document.getElementById("f-amount-bs").value)||0;
+const exchangeRate=parseFloat(document.getElementById("f-rate").value)||0;
+const amountUsd=exchangeRate>0 ? amountBs/exchangeRate : 0;
+
+const val={
+  expense_date:document.getElementById("f-date").value||todayCaracas(),
+  category:document.getElementById("f-cat").value,
+  description:document.getElementById("f-desc").value.trim(),
+  provider_id:provId||null,
+  amount:Number(amountUsd.toFixed(2)),
+  amount_bs:Number(amountBs.toFixed(2)),
+  exchange_rate:Number(exchangeRate.toFixed(4)),
+  notes:document.getElementById("f-notes").value.trim()
+};      if(!val.description){ toast("Describe en qué se gastó", true); throw new Error("__validation"); }
+if(val.amount_bs<=0){
+  toast("El monto en bolívares debe ser mayor a 0", true);
+  throw new Error("__validation");
+}
+
+if(val.exchange_rate<=0){
+  toast("La tasa debe ser mayor a 0", true);
+  throw new Error("__validation");
+}      if(state.editingExp) await Api.update("expenses", state.editingExp.id, val); else await Api.insert("expenses", val);
       await loadExpenses(); state.editingExp=null; closeModal(); render(); toast("Gasto guardado");
     });
   }
