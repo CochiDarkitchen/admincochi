@@ -1,4 +1,4 @@
-/* ============================================================
+//* ============================================================
    COCHI ADMINISTRACIÓN — app.js
    Reemplaza los dos valores de abajo por los de TU proyecto Supabase
    (Project Settings → API → Project URL / anon public key).
@@ -181,8 +181,26 @@ function shellView(){
   </div>`;
 }
 function wireShell(){
-  document.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>{ state.route=b.dataset.nav; state.modal=null; state.search=""; state.filterStatus=""; render(); });
-  const lo=document.getElementById("logout"); if(lo) lo.onclick=()=>sb.auth.signOut();
+  document.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>{
+    state.route=b.dataset.nav;
+    state.modal=null;
+    state.search="";
+    state.filterStatus="";
+    render();
+  });
+  const lo=document.getElementById("logout");
+  if(lo) lo.onclick=()=>sb.auth.signOut();
+}
+
+function statusLabel(s){
+  return {
+    pendiente:"Pendiente",
+    preparacion:"En preparación",
+    lista:"Lista",
+    delivery:"En delivery",
+    completada:"Completada",
+    cancelada:"Cancelada"
+  }[s] || s;
 }
 
 /* ---------- DASHBOARD ---------- */
