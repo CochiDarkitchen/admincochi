@@ -229,7 +229,7 @@ function productosView(){
   ${items.map(p=>`<tr><td>${p.name}</td><td>${p.category||"—"}</td><td>${fmt$(p.price)} <span style="color:var(--dim)">/ ${fmtBs(p.price)}</span></td>
     <td>${p.stock===null||p.stock===undefined?"—":p.stock}</td>
     <td><span class="badge ${p.available?'b-completada':'b-cancelada'}">${p.available?'Disponible':'No disponible'}</span></td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-prod="${p.id}">Editar</button> <button class="btn-danger btn-sm" data-del-prod="${p.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="7" class="empty">No hay productos</td></tr>'}
+    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-prod="${p.id}">Editar</button> <button class="btn-danger btn-sm" data-del-prod="${p.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="8" class="empty">No hay productos</td></tr>'}
   </tbody></table></div>`;
 }
 function productFormHtml(p){
@@ -294,9 +294,10 @@ function gastosView(){
   return `<div class="topbar"><h2>Gastos</h2><button class="btn-primary" id="newExp">+ Nuevo gasto</button></div>
   <div class="cards" style="margin-bottom:16px"><div class="card"><div class="label">Gastos del mes</div><div class="val">${fmt$(totalMes)}</div></div></div>
   <div class="toolbar"><input id="pSearch" placeholder="Buscar por descripción o proveedor..." value="${state.search}"></div>
-  <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto Bs</th><th>USD</th><th></th></tr></thead><tbody>  ${items.map(e=>`<tr><td>${e.expense_date}</td><td>${e.category}</td><td>${e.description}</td><td>${e.providers?e.providers.name:"—"}</td><td>Bs. ${Number(e.amount_bs||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td>
+  <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto Bs</th><th>Tasa</th><th>USD</th><th></th></tr></thead><tbody>  ${items.map(e=>`<tr><td>${e.expense_date}</td><td>${e.category}</td><td>${e.description}</td><td>${e.providers?e.providers.name:"—"}</td><td>Bs. ${Number(e.amount_bs||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td>
+<td>${Number(e.exchange_rate||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td>
 <td>${fmt$(e.amount)}</td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="7" class="empty">No hay gastos registrados</td></tr>'}
+    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="" class="empty">No hay gastos registrados</td></tr>'}
   </tbody></table></div>`;
 }
 function expenseFormHtml(e){
@@ -344,7 +345,7 @@ function ordenesView(){
   <div class="panel"><table><thead><tr><th>#</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Pago</th><th>Estado</th><th></th></tr></thead><tbody>
   ${items.map(o=>`<tr><td>${o.order_number}</td><td>${o.customers?o.customers.name:"—"}</td><td>${fmtDate(o.order_date)}</td><td>${fmt$(o.total)}</td><td>${o.payment_method||"—"}</td>
     <td><select data-status="${o.id}" style="width:auto;padding:4px 8px;font-size:12px">${["pendiente","preparacion","lista","delivery","completada","cancelada"].map(s=>`<option value="${s}" ${o.status===s?"selected":""}>${statusLabel(s)}</option>`).join("")}</select></td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-ticket="${o.id}">Ticket</button></td></tr>`).join("") || '<tr><td colspan="7" class="empty">No hay órdenes aún — crea la primera</td></tr>'}
+    <td style="text-align:right"><button class="btn-ghost btn-sm" data-ticket="${o.id}">Ticket</button></td></tr>`).join("") || '<tr><td colspan="8" class="empty">No hay órdenes aún — crea la primera</td></tr>'}
   </tbody></table></div>`;
 }
 
@@ -663,8 +664,25 @@ document.addEventListener("change", async e=>{
 });
 document.addEventListener("input", e=>{
   if(e.target.id==="pSearch"){
-    state.search=e.target.value; const pos=e.target.selectionStart; render();
-    const el=document.getElementById("pSearch"); if(el){ el.focus(); el.selectionStart=el.selectionEnd=pos; }
+    state.search=e.target.value;
+    const pos=e.target.selectionStart;
+    render();
+    const el=document.getElementById("pSearch");
+    if(el){
+      el.focus();
+      el.selectionStart=el.selectionEnd=pos;
+    }
+  }
+
+  if(e.target.id==="f-amount-bs" || e.target.id==="f-rate"){
+    const bs=parseFloat(document.getElementById("f-amount-bs")?.value)||0;
+    const rate=parseFloat(document.getElementById("f-rate")?.value)||0;
+    const usd=rate>0 ? bs/rate : 0;
+
+    const usdInput=document.getElementById("f-amount");
+    if(usdInput){
+      usdInput.value=usd>0 ? usd.toFixed(2) : "";
+    }
   }
 });
 
