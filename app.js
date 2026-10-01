@@ -124,7 +124,7 @@ function initRealtime(){
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"" };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", orderDateFilter:"", search:"" };
 
 async function initApp(){
   try{ await loadAll(); initRealtime(); render(); }
@@ -523,21 +523,500 @@ function expenseFormHtml(e){
 }
 
 /* ---------- ORDENES ---------- */
-function statusLabel(s){ return {pendiente:"Pendiente",preparacion:"En preparación",lista:"Lista",delivery:"En delivery",completada:"Completada",cancelada:"Cancelada"}[s]||s; }
 function ordenesView(){
+
   let items = cache.orders;
-  if(state.filterStatus) items = items.filter(o=>o.status===state.filterStatus);
-  if(state.search) items = items.filter(o=>(o.customers?.name||"").toLowerCase().includes(state.search.toLowerCase()) || (""+o.order_number).includes(state.search));
-  return `<div class="topbar"><h2>Órdenes</h2><button class="btn-primary" id="newOrder">+ Nueva orden</button></div>
-  <div class="toolbar">
-    <input id="pSearch" placeholder="Buscar cliente o # orden..." value="${state.search}">
-    <select id="fStatus"><option value="">Todos los estados</option>${["pendiente","preparacion","lista","delivery","completada","cancelada"].map(s=>`<option value="${s}" ${state.filterStatus===s?"selected":""}>${statusLabel(s)}</option>`).join("")}</select>
-  </div>
-  <div class="panel"><table><thead><tr><th>#</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Pago</th><th>Estado</th><th></th></tr></thead><tbody>
-  ${items.map(o=>`<tr><td>${o.order_number}</td><td>${o.customers?o.customers.name:"—"}</td><td>${fmtDate(o.order_date)}</td><td>${fmt$(o.total)}</td><td>${o.payment_method||"—"}</td>
-    <td><select data-status="${o.id}" style="width:auto;padding:4px 8px;font-size:12px">${["pendiente","preparacion","lista","delivery","completada","cancelada"].map(s=>`<option value="${s}" ${o.status===s?"selected":""}>${statusLabel(s)}</option>`).join("")}</select></td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-ticket="${o.id}">Ticket</button></td></tr>`).join("") || '<tr><td colspan="8" class="empty">No hay órdenes aún — crea la primera</td></tr>'}
-  </tbody></table></div>`;
+
+  /* ---------- FILTRO DE ESTADO ---------- */
+
+  if(state.filterStatus){
+    items = items.filter(o =>
+      o.status === state.filterStatus
+    );
+  }
+
+  /* ---------- BÚSQUEDA ---------- */
+
+  if(state.search){
+
+    const search = state.search.toLowerCase().trim();
+
+    items = items.filter(o => {
+
+      const nombre = (
+        o.customers?.name || ""
+      ).toLowerCase();
+
+      const telefono = (
+        o.customers?.phone || ""
+      ).toLowerCase();
+
+      const numero = (
+        "" + (o.order_number || "")
+      ).toLowerCase();
+
+      return (
+        nombre.includes(search) ||
+        telefono.includes(search) ||
+        numero.includes(search)
+      );
+
+    });
+  }
+
+  /* ---------- FILTRO DE FECHA ---------- */
+
+  const selectedDate =
+    state.orderDateFilter || "";
+
+  if(selectedDate){
+
+    items = items.filter(o =>
+      dateCaracas(o.order_date) === selectedDate
+    );
+
+  }
+
+  /* ---------- RESUMEN ---------- */
+
+  const totalVentas = items
+    .filter(o => o.status !== "cancelada")
+    .reduce(
+      (s,o) => s + Number(o.total || 0),
+      0
+    );
+
+  const totalOrdenes = items.length;
+
+  const ordenesCompletadas = items.filter(
+    o => o.status === "completada"
+  ).length;
+
+  const ordenesPendientes = items.filter(
+    o =>
+      ["pendiente","preparacion","lista","delivery"]
+      .includes(o.status)
+  ).length;
+
+  return `
+
+    <div class="topbar">
+
+      <h2>Órdenes</h2>
+
+      <button
+        class="btn-primary"
+        id="newOrder">
+        + Nueva orden
+      </button>
+
+    </div>
+
+
+    <!-- ============================= -->
+    <!-- FILTROS -->
+    <!-- ============================= -->
+
+    <div
+      class="toolbar"
+      style="
+        display:flex;
+        gap:10px;
+        flex-wrap:wrap;
+      "
+    >
+
+      <input
+        id="pSearch"
+        placeholder="Buscar cliente, teléfono o # orden..."
+        value="${escapeHtml(state.search || "")}"
+        style="flex:1;min-width:220px"
+      >
+
+
+      <input
+        id="orderDateFilter"
+        type="date"
+        value="${selectedDate}"
+        title="Filtrar por fecha"
+      >
+
+
+      <select
+        id="fStatus"
+      >
+
+        <option value="">
+          Todos los estados
+        </option>
+
+        ${
+          [
+            "pendiente",
+            "preparacion",
+            "lista",
+            "delivery",
+            "completada",
+            "cancelada"
+          ]
+          .map(s => `
+            <option
+              value="${s}"
+              ${
+                state.filterStatus === s
+                  ? "selected"
+                  : ""
+              }
+            >
+              ${statusLabel(s)}
+            </option>
+          `)
+          .join("")
+        }
+
+      </select>
+
+
+      ${
+        (state.search ||
+         state.filterStatus ||
+         selectedDate)
+
+        ? `
+          <button
+            class="btn-ghost"
+            id="clearOrderFilters"
+          >
+            Limpiar filtros
+          </button>
+        `
+        : ""
+      }
+
+    </div>
+
+
+    <!-- ============================= -->
+    <!-- RESUMEN -->
+    <!-- ============================= -->
+
+    <div class="cards">
+
+      <div class="card">
+
+        <div class="label">
+          Órdenes encontradas
+        </div>
+
+        <div class="val">
+          ${totalOrdenes}
+        </div>
+
+      </div>
+
+
+      <div class="card">
+
+        <div class="label">
+          Ventas
+        </div>
+
+        <div class="val">
+          ${fmt$(totalVentas)}
+        </div>
+
+        <div class="sub">
+          ${fmtBs(totalVentas)}
+        </div>
+
+      </div>
+
+
+      <div class="card">
+
+        <div class="label">
+          Completadas
+        </div>
+
+        <div class="val">
+          ${ordenesCompletadas}
+        </div>
+
+      </div>
+
+
+      <div class="card">
+
+        <div class="label">
+          Pendientes
+        </div>
+
+        <div class="val">
+          ${ordenesPendientes}
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <!-- ============================= -->
+    <!-- TABLA -->
+    <!-- ============================= -->
+
+    <div class="panel">
+
+      <table>
+
+        <thead>
+
+          <tr>
+
+            <th>#</th>
+
+            <th>Cliente</th>
+
+            <th>Teléfono</th>
+
+            <th>Fecha</th>
+
+            <th>Total</th>
+
+            <th>Pago</th>
+
+            <th>Estado</th>
+
+            <th>Nota</th>
+
+            <th></th>
+
+          </tr>
+
+        </thead>
+
+
+        <tbody>
+
+          ${
+            items.map(o => `
+
+              <tr>
+
+                <!-- NÚMERO -->
+
+                <td>
+                  <b>
+                    #${o.order_number}
+                  </b>
+                </td>
+
+
+                <!-- CLIENTE -->
+
+                <td>
+
+                  ${
+                    o.customers
+                      ? escapeHtml(
+                          o.customers.name
+                        )
+                      : "—"
+                  }
+
+                </td>
+
+
+                <!-- TELÉFONO -->
+
+                <td>
+
+                  ${
+                    o.customers?.phone
+                      ? escapeHtml(
+                          o.customers.phone
+                        )
+                      : "—"
+                  }
+
+                </td>
+
+
+                <!-- FECHA -->
+
+                <td>
+
+                  ${fmtDate(o.order_date)}
+
+                  <div
+                    style="
+                      color:var(--dim);
+                      font-size:11px;
+                      margin-top:2px;
+                    "
+                  >
+                    ${fmtTime(o.order_date)}
+                  </div>
+
+                </td>
+
+
+                <!-- TOTAL -->
+
+                <td>
+
+                  <b>
+                    ${fmt$(o.total)}
+                  </b>
+
+                  <div
+                    style="
+                      color:var(--dim);
+                      font-size:11px;
+                      margin-top:2px;
+                    "
+                  >
+                    ${fmtBs(o.total)}
+                  </div>
+
+                </td>
+
+
+                <!-- PAGO -->
+
+                <td>
+
+                  ${
+                    o.payment_method || "—"
+                  }
+
+                </td>
+
+
+                <!-- ESTADO -->
+
+                <td>
+
+                  <select
+                    data-status="${o.id}"
+                    style="
+                      width:auto;
+                      padding:4px 8px;
+                      font-size:12px;
+                    "
+                  >
+
+                    ${
+                      [
+                        "pendiente",
+                        "preparacion",
+                        "lista",
+                        "delivery",
+                        "completada",
+                        "cancelada"
+                      ]
+                      .map(s => `
+
+                        <option
+                          value="${s}"
+                          ${
+                            o.status === s
+                              ? "selected"
+                              : ""
+                          }
+                        >
+                          ${statusLabel(s)}
+                        </option>
+
+                      `)
+                      .join("")
+                    }
+
+                  </select>
+
+                </td>
+
+
+                <!-- NOTA -->
+
+                <td>
+
+                  ${
+                    o.notes &&
+                    o.notes.trim()
+
+                    ? `
+                      <span
+                        title="${escapeHtml(
+                          o.notes
+                        )}"
+                        style="
+                          cursor:help;
+                          font-size:16px;
+                        "
+                      >
+                        📝
+                      </span>
+                    `
+
+                    : `
+                      <span
+                        style="
+                          color:var(--dim);
+                        "
+                      >
+                        —
+                      </span>
+                    `
+                  }
+
+                </td>
+
+
+                <!-- ACCIONES -->
+
+                <td
+                  style="
+                    text-align:right;
+                    white-space:nowrap;
+                  "
+                >
+
+                  <button
+                    class="btn-ghost btn-sm"
+                    data-ticket="${o.id}"
+                  >
+                    Ticket
+                  </button>
+
+                </td>
+
+              </tr>
+
+            `).join("")
+
+            ||
+
+            `
+              <tr>
+
+                <td
+                  colspan="9"
+                  class="empty"
+                >
+                  No se encontraron órdenes
+                </td>
+
+              </tr>
+            `
+          }
+
+        </tbody>
+
+      </table>
+
+    </div>
+
+  `;
 }
 
 function orderBuilderHtml(){
@@ -811,6 +1290,17 @@ async function openTicketForOrder(o){
 /* ---------- EVENTOS GLOBALES ---------- */
 document.addEventListener("click", async e=>{
   const t=e.target;
+    if(t.id==="clearOrderFilters"){
+
+    state.search="";
+    state.filterStatus="";
+    state.orderDateFilter="";
+
+    render();
+
+    return;
+
+  }
   if(t.id==="newProd"){ state.editingProd=null; state.modal="prod"; render(); }
   if(t.dataset.editProd){ state.editingProd=cache.products.find(p=>p.id===t.dataset.editProd); state.modal="prod"; render(); }
   if(t.dataset.delProd){ if(confirm("¿Eliminar este producto?")){ try{ await Api.remove("products", t.dataset.delProd); await loadProducts(); render(); }catch(e){ toast(friendlyError(e), true); } } }
@@ -845,13 +1335,65 @@ document.addEventListener("click", async e=>{
 });
 
 document.addEventListener("change", async e=>{
+
+  /* ---------- CAMBIO DE ESTADO ---------- */
+
   if(e.target.dataset.status){
-    const id=e.target.dataset.status, val=e.target.value;
-    e.target.disabled=true;
-    try{ await Api.update("orders", id, {status:val}); await loadOrdersAndItems(); render(); toast("Estado actualizado"); }
-    catch(err){ toast(friendlyError(err), true); }
+
+    const id = e.target.dataset.status;
+    const val = e.target.value;
+
+    e.target.disabled = true;
+
+    try{
+
+      await Api.update(
+        "orders",
+        id,
+        {status:val}
+      );
+
+      await loadOrdersAndItems();
+
+      render();
+
+      toast("Estado actualizado");
+
+    }catch(err){
+
+      toast(
+        friendlyError(err),
+        true
+      );
+
+    }
+
   }
-  if(e.target.id==="fStatus"){ state.filterStatus=e.target.value; render(); }
+
+
+  /* ---------- FILTRO DE ESTADO ---------- */
+
+  if(e.target.id === "fStatus"){
+
+    state.filterStatus =
+      e.target.value;
+
+    render();
+
+  }
+
+
+  /* ---------- FILTRO DE FECHA ---------- */
+
+  if(e.target.id === "orderDateFilter"){
+
+    state.orderDateFilter =
+      e.target.value;
+
+    render();
+
+  }
+
 });
 document.addEventListener("input", e=>{
   if(e.target.id==="pSearch"){
