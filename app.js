@@ -189,35 +189,226 @@ function wireShell(){
 function dashboardView(){
   const orders = cache.orders;
   const t = todayCaracas();
-  const todays = orders.filter(o=>dateCaracas(o.order_date)===t && o.status!=="cancelada");
-  const ventasHoy = todays.reduce((s,o)=>s+Number(o.total),0);
-  const pendientes = orders.filter(o=>["pendiente","preparacion","lista","delivery"].includes(o.status)).length;
-  const completadasHoy = orders.filter(o=>dateCaracas(o.order_date)===t && o.status==="completada").length;
+
+  const todays = orders.filter(o =>
+    dateCaracas(o.order_date) === t &&
+    o.status !== "cancelada"
+  );
+
+  const ventasHoy = todays.reduce(
+    (s,o) => s + Number(o.total || 0),
+    0
+  );
+
+  const gastosHoy = cache.expenses
+    .filter(e => e.expense_date === t)
+    .reduce((s,e) => s + Number(e.amount || 0), 0);
+
+  const gananciaHoy = ventasHoy - gastosHoy;
+
+  const ticketPromedio = todays.length
+    ? ventasHoy / todays.length
+    : 0;
+
+  const pendientes = orders.filter(o =>
+    ["pendiente","preparacion","lista","delivery"].includes(o.status)
+  ).length;
+
+  const completadasHoy = todays.filter(
+    o => o.status === "completada"
+  ).length;
+
   const clientes = cache.customers.length;
-  const sales={};
-  (cache.orderItemsAll||[]).forEach(it=>{ if(it.orders && it.orders.status!=="cancelada"){ sales[it.product_name]=(sales[it.product_name]||0)+it.quantity; } });
-  const ranked = Object.entries(sales).sort((a,b)=>b[1]-a[1]);
-  const top = ranked.slice(0,3);
-  const bottom = ranked.slice(-3).reverse().filter(r=>!top.some(t2=>t2[0]===r[0]));
-  const maxQty = ranked.length ? ranked[0][1] : 1;
-  const bar=(name,qty)=>`<div class="summary-line"><span>${name}</span><span style="display:flex;align-items:center;gap:8px"><span style="background:var(--accent);height:6px;width:${Math.max(6,Math.round((qty/maxQty)*80))}px;border-radius:3px;display:inline-block"></span>${qty}</span></div>`;
-  return `<div class="topbar"><h2>Dashboard</h2></div>
-  <div class="cards">
-    <div class="card"><div class="label">Ventas de hoy</div><div class="val">${fmt$(ventasHoy)}</div><div class="sub">${fmtBs(ventasHoy)}</div></div>
-    <div class="card"><div class="label">Órdenes de hoy</div><div class="val">${todays.length}</div><div class="sub">${completadasHoy} completadas</div></div>
-    <div class="card"><div class="label">Órdenes pendientes</div><div class="val">${pendientes}</div><div class="sub">en todo el sistema</div></div>
-    <div class="card"><div class="label">Clientes registrados</div><div class="val">${clientes}</div></div>
-  </div>
-  <div class="row2" style="margin-bottom:24px">
-    <div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Más vendidos</div>
-      ${top.map(([n,q])=>bar(n,q)).join("") || '<div class="empty" style="padding:16px">Aún no hay ventas registradas</div>'}</div>
-    <div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Menos vendidos</div>
-      ${bottom.length ? bottom.map(([n,q])=>bar(n,q)).join("") : '<div class="empty" style="padding:16px">Aún no hay suficientes datos</div>'}</div>
-  </div>
-  <div class="panel" style="padding:18px">
-    <div style="color:var(--dim);font-size:14px">Últimas órdenes</div>
-    ${orders.slice(0,5).map(o=>`<div class="summary-line"><span>#${o.order_number} — ${o.customers?o.customers.name:"—"}</span><span>${fmt$(o.total)} · <span class="badge b-${o.status}">${statusLabel(o.status)}</span></span></div>`).join("") || '<div class="empty">Aún no hay órdenes</div>'}
-  </div>`;
+
+  /* ---------- PRODUCTOS MÁS VENDIDOS ---------- */
+
+  const sales = {};
+
+  (cache.orderItemsAll || []).forEach(it => {
+    if(
+      it.orders &&
+      it.orders.status !== "cancelada"
+    ){
+      sales[it.product_name] =
+        (sales[it.product_name] || 0) +
+        Number(it.quantity || 0);
+    }
+  });
+
+  const ranked = Object.entries(sales)
+    .sort((a,b) => b[1] - a[1]);
+
+  const top = ranked.slice(0,5);
+
+  const maxQty = ranked.length
+    ? ranked[0][1]
+    : 1;
+
+  const bar = (name,qty) => `
+    <div class="summary-line">
+      <span>${escapeHtml(name)}</span>
+
+      <span style="display:flex;align-items:center;gap:8px">
+
+        <span
+          style="
+            background:var(--accent);
+            height:6px;
+            width:${Math.max(
+              6,
+              Math.round((qty/maxQty)*100)
+            )}px;
+            border-radius:3px;
+            display:inline-block
+          ">
+        </span>
+
+        ${qty}
+      </span>
+    </div>
+  `;
+
+  /* ---------- ÚLTIMAS ÓRDENES ---------- */
+
+  const latestOrders = orders.slice(0,5);
+
+  return `
+    <div class="topbar">
+      <h2>Dashboard</h2>
+    </div>
+
+    <div class="cards">
+
+      <div class="card">
+        <div class="label">Ventas de hoy</div>
+        <div class="val">${fmt$(ventasHoy)}</div>
+        <div class="sub">${fmtBs(ventasHoy)}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Gastos de hoy</div>
+        <div class="val">${fmt$(gastosHoy)}</div>
+        <div class="sub">${fmtBs(gastosHoy)}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Ganancia estimada</div>
+        <div class="val">${fmt$(gananciaHoy)}</div>
+        <div class="sub">${fmtBs(gananciaHoy)}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Órdenes de hoy</div>
+        <div class="val">${todays.length}</div>
+        <div class="sub">${completadasHoy} completadas</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Ticket promedio</div>
+        <div class="val">${fmt$(ticketPromedio)}</div>
+        <div class="sub">por orden</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Órdenes pendientes</div>
+        <div class="val">${pendientes}</div>
+        <div class="sub">en todo el sistema</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Clientes registrados</div>
+        <div class="val">${clientes}</div>
+      </div>
+
+    </div>
+
+    <div class="row2" style="margin-bottom:24px">
+
+      <div class="panel" style="padding:18px">
+
+        <div style="
+          color:var(--dim);
+          font-size:14px;
+          margin-bottom:8px
+        ">
+          Productos más vendidos
+        </div>
+
+        ${
+          top.map(([n,q]) => bar(n,q)).join("")
+          ||
+          '<div class="empty" style="padding:16px">Aún no hay ventas registradas</div>'
+        }
+
+      </div>
+
+      <div class="panel" style="padding:18px">
+
+        <div style="
+          color:var(--dim);
+          font-size:14px;
+          margin-bottom:8px
+        ">
+          Últimas órdenes
+        </div>
+
+        ${
+          latestOrders.map(o => `
+            <div class="summary-line">
+
+              <span>
+                #${o.order_number}
+                —
+                ${o.customers ? escapeHtml(o.customers.name) : "—"}
+              </span>
+
+              <span>
+                ${fmt$(o.total)}
+
+                ·
+
+                <span class="badge b-${o.status}">
+                  ${statusLabel(o.status)}
+                </span>
+              </span>
+
+            </div>
+          `).join("")
+          ||
+          '<div class="empty" style="padding:16px">Aún no hay órdenes</div>'
+        }
+
+      </div>
+
+    </div>
+
+    <div class="panel" style="padding:18px">
+
+      <div style="
+        color:var(--dim);
+        font-size:14px;
+        margin-bottom:8px
+      ">
+        Resumen del día
+      </div>
+
+      <div class="summary-line">
+        <span>Ventas</span>
+        <span>${fmt$(ventasHoy)}</span>
+      </div>
+
+      <div class="summary-line">
+        <span>Gastos</span>
+        <span>${fmt$(gastosHoy)}</span>
+      </div>
+
+      <div class="summary-line total">
+        <span>Ganancia estimada</span>
+        <span>${fmt$(gananciaHoy)}</span>
+      </div>
+
+    </div>
+  `;
 }
 
 /* ---------- PRODUCTOS ---------- */
