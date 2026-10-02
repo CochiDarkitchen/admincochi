@@ -1753,6 +1753,37 @@ document.addEventListener("input", e=>{
   }
 
 });
+document.addEventListener("input", e=>{
+
+  if(e.target.id==="pSearch"){
+    state.search=e.target.value;
+
+    const pos=e.target.selectionStart;
+
+    render();
+
+    const el=document.getElementById("pSearch");
+
+    if(el){
+      el.focus();
+      el.selectionStart=el.selectionEnd=pos;
+    }
+  }
+
+  if(e.target.id==="ob-cust-search"){
+    state.orderCustomerSearch=e.target.value;
+
+    const pos=e.target.selectionStart;
+
+    render();
+
+    const el=document.getElementById("ob-cust-search");
+
+    if(el){
+      el.focus();
+      el.selectionStart=el.selectionEnd=pos;
+    }
+  }
 
   if(e.target.id==="f-amount-bs" || e.target.id==="f-rate"){
     const bs=parseFloat(document.getElementById("f-amount-bs")?.value)||0;
@@ -1760,10 +1791,12 @@ document.addEventListener("input", e=>{
     const usd=rate>0 ? bs/rate : 0;
 
     const usdInput=document.getElementById("f-amount");
+
     if(usdInput){
       usdInput.value=usd>0 ? usd.toFixed(2) : "";
     }
   }
+
 });
 
 /* ---------- ARRANQUE ---------- */
