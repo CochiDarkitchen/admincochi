@@ -188,6 +188,7 @@ function wireShell(){
     state.filterStatus="";
     render();
   });
+
   const lo=document.getElementById("logout");
   if(lo) lo.onclick=()=>sb.auth.signOut();
 }
@@ -202,9 +203,6 @@ function statusLabel(s){
     cancelada:"Cancelada"
   }[s] || s;
 }
-
-/* ---------- DASHBOARD ---------- */
-function dashboardView(){
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
