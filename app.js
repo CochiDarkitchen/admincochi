@@ -188,7 +188,6 @@ function wireShell(){
     state.filterStatus="";
     render();
   });
-
   const lo=document.getElementById("logout");
   if(lo) lo.onclick=()=>sb.auth.signOut();
 }
@@ -1039,7 +1038,8 @@ function ordenesView(){
 }
 
 function orderBuilderHtml(){
-  const products = cache.products.filter(p=>p.available);
+  const term = (state.orderProdSearch||"").toLowerCase();
+  const products = cache.products.filter(p=>p.available && (!term || p.name.toLowerCase().includes(term)));
   const customers = cache.customers;
   const zones = cache.zones.filter(z=>z.active!==false);
   const subtotal = state.orderCart.reduce((s,l)=>s+l.price*l.qty,0);
@@ -1053,8 +1053,11 @@ function orderBuilderHtml(){
       <select id="ob-cust"><option value="">Selecciona un cliente...</option>${customers.map(c=>`<option value="${c.id}" ${state.orderCustomer===c.id?"selected":""}>${c.name} — ${c.phone||""}</option>`).join("")}</select>
     </div>
     <div class="field"><label>Productos</label>
+      <input id="ob-prod-search" placeholder="Buscar platillo..." value="${state.orderProdSearch||""}" style="margin-bottom:8px">
       <div class="panel" style="max-height:220px;overflow-y:auto;padding:6px 12px">
-      ${products.map(p=>`<div class="prod-pick"><span>${p.name} <span style="color:var(--dim)">· ${fmt$(p.price)}${p.stock!==null&&p.stock!==undefined?` · stock: ${p.stock}`:""}</span></span><button class="btn-ghost btn-sm" data-add="${p.id}">Agregar</button></div>`).join("") || '<div class="empty">No hay productos disponibles</div>'}
+      ${products.map(p=>{ const inCart=state.orderCart.find(l=>l.productId===p.id);
+        return `<div class="prod-pick" data-add="${p.id}" style="cursor:pointer"><span>${p.name} <span style="color:var(--dim)">· ${fmt$(p.price)}${p.stock!==null&&p.stock!==undefined?` · stock: ${p.stock}`:""}</span>${inCart?` <b style="color:var(--accent)">· ${inCart.qty} en carrito</b>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:18px">+</span></div>`;
+      }).join("") || '<div class="empty">No hay platillos que coincidan</div>'}
       </div>
     </div>
     <div class="row2">
@@ -1205,6 +1208,12 @@ if(val.exchange_rate<=0){
     document.getElementById("ob-zone").onchange=e=>{ state.orderZone=e.target.value; refreshOrderModal(); };
     document.getElementById("ob-disc").oninput=e=>{ state.orderDiscount=parseFloat(e.target.value)||0; };
     document.getElementById("ob-notes").oninput=e=>{ state.orderNotes=e.target.value; };
+    const psEl=document.getElementById("ob-prod-search");
+    if(psEl) psEl.oninput=e=>{
+      state.orderProdSearch=e.target.value; const pos=e.target.selectionStart;
+      refreshOrderModal();
+      const el=document.getElementById("ob-prod-search"); if(el){ el.focus(); el.selectionStart=el.selectionEnd=pos; }
+    };
     document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
       const p=cache.products.find(x=>x.id===b.dataset.add);
       const line=state.orderCart.find(l=>l.productId===p.id);
@@ -1336,7 +1345,7 @@ document.addEventListener("click", async e=>{
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
-  if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.modal="order"; render(); }
+  if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.orderProdSearch=""; state.modal="order"; render(); }
   if(t.dataset.ticket){ const o=cache.orders.find(x=>x.id===t.dataset.ticket); if(o) openTicketForOrder(o); }
 
   if(t.id==="saveConfig"){
