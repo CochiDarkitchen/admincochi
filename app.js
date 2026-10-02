@@ -1,4 +1,4 @@
-//* ============================================================
+/* ============================================================
    COCHI ADMINISTRACIÓN — app.js
    Reemplaza los dos valores de abajo por los de TU proyecto Supabase
    (Project Settings → API → Project URL / anon public key).
@@ -202,6 +202,9 @@ function statusLabel(s){
     cancelada:"Cancelada"
   }[s] || s;
 }
+
+/* ---------- DASHBOARD ---------- */
+function dashboardView(){
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
