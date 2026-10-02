@@ -124,7 +124,7 @@ function initRealtime(){
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", orderDateFilter:"", search:"" };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"" };
 
 async function initApp(){
   try{ await loadAll(); initRealtime(); render(); }
@@ -1038,47 +1038,273 @@ function ordenesView(){
 }
 
 function orderBuilderHtml(){
-  const term = (state.orderProdSearch||"").toLowerCase();
-  const products = cache.products.filter(p=>p.available && (!term || p.name.toLowerCase().includes(term)));
+  const products = cache.products.filter(p=>p.available);
   const customers = cache.customers;
   const zones = cache.zones.filter(z=>z.active!==false);
+
   const subtotal = state.orderCart.reduce((s,l)=>s+l.price*l.qty,0);
   const zone = zones.find(z=>z.id===state.orderZone) || {cost:0};
   const discount = state.orderDiscount||0;
   const total = subtotal + Number(zone.cost) - discount;
+
+  const search = (state.orderCustomerSearch||"").toLowerCase().trim();
+
+  let customerResults = customers.filter(c=>{
+    const name = (c.name||"").toLowerCase();
+    const phone = (c.phone||"").toLowerCase();
+
+    return !search || name.includes(search) || phone.includes(search);
+  }).slice(0,8);
+
+  const selectedCustomer = customers.find(c=>c.id===state.orderCustomer);
+
   return `<h3>Nueva orden</h3>
+
   <div class="ob-grid">
    <div>
-    <div class="field"><label>Cliente</label>
-      <select id="ob-cust"><option value="">Selecciona un cliente...</option>${customers.map(c=>`<option value="${c.id}" ${state.orderCustomer===c.id?"selected":""}>${c.name} — ${c.phone||""}</option>`).join("")}</select>
+
+    <div class="field">
+      <label>Cliente</label>
+
+      <input
+        id="ob-cust-search"
+        type="text"
+        placeholder="🔎 Buscar por nombre o teléfono..."
+        value="${escapeHtml(state.orderCustomerSearch||"")}"
+        autocomplete="off"
+      >
+
+      <input
+        type="hidden"
+        id="ob-cust"
+        value="${state.orderCustomer||""}"
+      >
+
+      ${selectedCustomer ? `
+        <div class="panel" style="margin-top:8px;padding:10px;border:1px solid var(--accent)">
+          <div style="font-weight:600">✓ ${escapeHtml(selectedCustomer.name)}</div>
+          <div style="font-size:12px;color:var(--dim)">
+            ${escapeHtml(selectedCustomer.phone||"Sin teléfono")}
+          </div>
+          ${selectedCustomer.address ? `
+            <div style="font-size:12px;color:var(--dim);margin-top:3px">
+              ${escapeHtml(selectedCustomer.address)}
+            </div>
+          ` : ""}
+        </div>
+      ` : ""}
+
+      <div style="margin-top:8px">
+        ${customerResults.length ? customerResults.map(c=>`
+          <button
+            type="button"
+            class="btn-ghost"
+            data-select-order-cust="${c.id}"
+            style="display:block;width:100%;text-align:left;margin-bottom:5px;padding:9px 10px"
+          >
+            <b>${escapeHtml(c.name)}</b>
+            <span style="color:var(--dim);font-size:12px">
+              — ${escapeHtml(c.phone||"Sin teléfono")}
+            </span>
+          </button>
+        `).join("") : `
+          <div style="padding:10px;color:var(--dim);font-size:13px">
+            No encontramos ese cliente.
+          </div>
+        `}
+      </div>
+
+      <button
+        type="button"
+        class="btn-ghost btn-sm"
+        id="quickNewCustomer"
+        style="margin-top:5px"
+      >
+        + Crear cliente rápidamente
+      </button>
+
+      ${state.quickCustomerOpen ? `
+        <div class="panel" style="margin-top:10px;padding:12px">
+          <div style="font-weight:600;margin-bottom:10px">
+            Nuevo cliente
+          </div>
+
+          <div class="field">
+            <label>Nombre</label>
+            <input id="qc-name" placeholder="Nombre del cliente">
+          </div>
+
+          <div class="field">
+            <label>Teléfono</label>
+            <input id="qc-phone" placeholder="0414-1234567">
+          </div>
+
+          <div class="field">
+            <label>Dirección</label>
+            <input id="qc-address" placeholder="Dirección de entrega">
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button
+              type="button"
+              class="btn-ghost btn-sm"
+              id="cancelQuickCustomer"
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="button"
+              class="btn-primary btn-sm"
+              id="saveQuickCustomer"
+            >
+              Guardar cliente
+            </button>
+          </div>
+        </div>
+      ` : ""}
     </div>
-    <div class="field"><label>Productos</label>
-      <input id="ob-prod-search" placeholder="Buscar platillo..." value="${state.orderProdSearch||""}" style="margin-bottom:8px">
+
+    <div class="field">
+      <label>Productos</label>
+
       <div class="panel" style="max-height:220px;overflow-y:auto;padding:6px 12px">
-      ${products.map(p=>{ const inCart=state.orderCart.find(l=>l.productId===p.id);
-        return `<div class="prod-pick" data-add="${p.id}" style="cursor:pointer"><span>${p.name} <span style="color:var(--dim)">· ${fmt$(p.price)}${p.stock!==null&&p.stock!==undefined?` · stock: ${p.stock}`:""}</span>${inCart?` <b style="color:var(--accent)">· ${inCart.qty} en carrito</b>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:18px">+</span></div>`;
-      }).join("") || '<div class="empty">No hay platillos que coincidan</div>'}
+        ${products.map(p=>`
+          <div class="prod-pick">
+            <span>
+              ${escapeHtml(p.name)}
+              <span style="color:var(--dim)">
+                · ${fmt$(p.price)}
+                ${p.stock!==null&&p.stock!==undefined ? ` · stock: ${p.stock}` : ""}
+              </span>
+            </span>
+
+            <button
+              class="btn-ghost btn-sm"
+              data-add="${p.id}"
+            >
+              Agregar
+            </button>
+          </div>
+        `).join("") || '<div class="empty">No hay productos disponibles</div>'}
       </div>
     </div>
+
     <div class="row2">
-      <div class="field"><label>Zona de delivery</label><select id="ob-zone"><option value="">Sin delivery</option>${zones.map(z=>`<option value="${z.id}" ${state.orderZone===z.id?"selected":""}>${z.name} — ${fmt$(z.cost)}</option>`).join("")}</select></div>
-      <div class="field"><label>Método de pago</label><select id="ob-pay">${["Efectivo","Pago móvil","Transferencia","Zelle","Divisas","Otro"].map(m=>`<option>${m}</option>`).join("")}</select></div>
+
+      <div class="field">
+        <label>Zona de delivery</label>
+
+        <select id="ob-zone">
+          <option value="">Sin delivery</option>
+
+          ${zones.map(z=>`
+            <option
+              value="${z.id}"
+              ${state.orderZone===z.id?"selected":""}
+            >
+              ${escapeHtml(z.name)} — ${fmt$(z.cost)}
+            </option>
+          `).join("")}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Método de pago</label>
+
+        <select id="ob-pay">
+          ${["Efectivo","Pago móvil","Transferencia","Zelle","Divisas","Otro"]
+            .map(m=>`<option>${m}</option>`).join("")}
+        </select>
+      </div>
+
     </div>
-    <div class="field"><label>Descuento (USD, opcional)</label><input id="ob-disc" type="number" step="0.01" value="${discount||""}"></div>
-    <div class="field"><label>Notas</label><textarea id="ob-notes" rows="2">${state.orderNotes||""}</textarea></div>
+
+    <div class="field">
+      <label>Descuento (USD, opcional)</label>
+      <input
+        id="ob-disc"
+        type="number"
+        step="0.01"
+        value="${discount||""}"
+      >
+    </div>
+
+    <div class="field">
+      <label>Notas</label>
+      <textarea
+        id="ob-notes"
+        rows="2"
+      >${escapeHtml(state.orderNotes||"")}</textarea>
+    </div>
+
    </div>
+
    <div>
+
     <div class="panel" style="padding:14px">
-      <div style="color:var(--dim);font-size:13px;margin-bottom:8px">Carrito</div>
-      ${state.orderCart.map((l,i)=>`<div class="cart-line"><span>${l.name}</span><span class="qty-ctrl"><button data-dec="${i}">−</button>${l.qty}<button data-inc="${i}">+</button> ${fmt$(l.price*l.qty)}</span></div>`).join("") || '<div style="color:var(--dim);font-size:13px">Agrega productos del panel izquierdo</div>'}
+
+      <div style="color:var(--dim);font-size:13px;margin-bottom:8px">
+        Carrito
+      </div>
+
+      ${state.orderCart.map((l,i)=>`
+        <div class="cart-line">
+          <span>${escapeHtml(l.name)}</span>
+
+          <span class="qty-ctrl">
+            <button data-dec="${i}">−</button>
+            ${l.qty}
+            <button data-inc="${i}">+</button>
+            ${fmt$(l.price*l.qty)}
+          </span>
+        </div>
+      `).join("") || `
+        <div style="color:var(--dim);font-size:13px">
+          Agrega productos del panel izquierdo
+        </div>
+      `}
+
       <div style="margin-top:12px">
-        <div class="summary-line"><span>Subtotal</span><span>${fmt$(subtotal)}</span></div>
-        <div class="summary-line"><span>Delivery</span><span>${fmt$(zone.cost)}</span></div>
-        <div class="summary-line"><span>Descuento</span><span>-${fmt$(discount)}</span></div>
-        <div class="summary-line total"><span>Total</span><span>${fmt$(total)} <span style="color:var(--dim);font-weight:400;font-size:13px">/ ${fmtBs(total)}</span></span></div>
+
+        <div class="summary-line">
+          <span>Subtotal</span>
+          <span>${fmt$(subtotal)}</span>
+        </div>
+
+        <div class="summary-line">
+          <span>Delivery</span>
+          <span>${fmt$(zone.cost)}</span>
+        </div>
+
+        <div class="summary-line">
+          <span>Descuento</span>
+          <span>-${fmt$(discount)}</span>
+        </div>
+
+        <div class="summary-line total">
+          <span>Total</span>
+          <span>
+            ${fmt$(total)}
+            <span style="color:var(--dim);font-weight:400;font-size:13px">
+              / ${fmtBs(total)}
+            </span>
+          </span>
+        </div>
+
       </div>
     </div>
-    <div class="modal-actions"><button class="btn-ghost" id="cancel">Cancelar</button><button class="btn-primary" id="save-order">Guardar orden</button></div>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" id="cancel">
+        Cancelar
+      </button>
+
+      <button class="btn-primary" id="save-order">
+        Guardar orden
+      </button>
+    </div>
+
    </div>
   </div>`;
 }
@@ -1204,7 +1430,6 @@ if(val.exchange_rate<=0){
     });
   }
   if(name==="order"){
-    document.getElementById("ob-cust").onchange=e=>{ state.orderCustomer=e.target.value; };
     document.getElementById("ob-zone").onchange=e=>{ state.orderZone=e.target.value; refreshOrderModal(); };
     document.getElementById("ob-disc").oninput=e=>{ state.orderDiscount=parseFloat(e.target.value)||0; };
     document.getElementById("ob-notes").oninput=e=>{ state.orderNotes=e.target.value; };
@@ -1318,6 +1543,78 @@ async function openTicketForOrder(o){
 /* ---------- EVENTOS GLOBALES ---------- */
 document.addEventListener("click", async e=>{
   const t=e.target;
+    /* ---------- CLIENTE RÁPIDO EN NUEVA ORDEN ---------- */
+
+  if(t.id==="quickNewCustomer"){
+    state.quickCustomerOpen=true;
+    render();
+
+    setTimeout(()=>{
+      const el=document.getElementById("qc-name");
+      if(el) el.focus();
+    },50);
+
+    return;
+  }
+
+  if(t.id==="cancelQuickCustomer"){
+    state.quickCustomerOpen=false;
+    refreshOrderModal();
+    return;
+  }
+
+  if(t.dataset.selectOrderCust){
+    const c=cache.customers.find(x=>x.id===t.dataset.selectOrderCust);
+
+    if(c){
+      state.orderCustomer=c.id;
+      state.orderCustomerSearch=c.name;
+      state.quickCustomerOpen=false;
+      refreshOrderModal();
+    }
+
+    return;
+  }
+
+  if(t.id==="saveQuickCustomer"){
+    const name=document.getElementById("qc-name").value.trim();
+    const phone=document.getElementById("qc-phone").value.trim();
+    const address=document.getElementById("qc-address").value.trim();
+
+    if(!name){
+      toast("El nombre del cliente es obligatorio", true);
+      return;
+    }
+
+    t.disabled=true;
+    t.textContent="Guardando...";
+
+    try{
+      const created=await Api.insert("customers",{
+        name,
+        phone,
+        address,
+        address_2:"",
+        notes:""
+      });
+
+      await loadCustomers();
+
+      state.orderCustomer=created.id;
+      state.orderCustomerSearch=created.name;
+      state.quickCustomerOpen=false;
+
+      refreshOrderModal();
+
+      toast("Cliente creado y seleccionado");
+    }catch(err){
+      toast(friendlyError(err), true);
+      t.disabled=false;
+      t.textContent="Guardar cliente";
+    }
+
+    return;
+  }
     if(t.id==="clearOrderFilters"){
 
     state.search="";
@@ -1345,7 +1642,7 @@ document.addEventListener("click", async e=>{
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
-  if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.orderProdSearch=""; state.modal="order"; render(); }
+  if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderCustomerSearch=""; state.quickCustomerOpen=false; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.modal="order"; render(); }
   if(t.dataset.ticket){ const o=cache.orders.find(x=>x.id===t.dataset.ticket); if(o) openTicketForOrder(o); }
 
   if(t.id==="saveConfig"){
@@ -1424,16 +1721,38 @@ document.addEventListener("change", async e=>{
 
 });
 document.addEventListener("input", e=>{
+
   if(e.target.id==="pSearch"){
     state.search=e.target.value;
+
     const pos=e.target.selectionStart;
+
     render();
+
     const el=document.getElementById("pSearch");
+
     if(el){
       el.focus();
       el.selectionStart=el.selectionEnd=pos;
     }
   }
+
+  if(e.target.id==="ob-cust-search"){
+    state.orderCustomerSearch=e.target.value;
+
+    const pos=e.target.selectionStart;
+
+    render();
+
+    const el=document.getElementById("ob-cust-search");
+
+    if(el){
+      el.focus();
+      el.selectionStart=el.selectionEnd=pos;
+    }
+  }
+
+});
 
   if(e.target.id==="f-amount-bs" || e.target.id==="f-rate"){
     const bs=parseFloat(document.getElementById("f-amount-bs")?.value)||0;
