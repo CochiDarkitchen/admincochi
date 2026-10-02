@@ -1083,15 +1083,20 @@ function orderBuilderHtml(){
 
       ${selectedCustomer ? `
         <div class="panel" style="margin-top:8px;padding:10px;border:1px solid var(--accent)">
-          <div style="font-weight:600">✓ ${escapeHtml(selectedCustomer.name)}</div>
-          <div style="font-size:12px;color:var(--dim)">
-            ${escapeHtml(selectedCustomer.phone||"Sin teléfono")}
-          </div>
-          ${selectedCustomer.address ? `
-            <div style="font-size:12px;color:var(--dim);margin-top:3px">
-              ${escapeHtml(selectedCustomer.address)}
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div>
+              <div style="font-weight:600">✓ ${escapeHtml(selectedCustomer.name)}</div>
+              <div style="font-size:12px;color:var(--dim)">
+                ${escapeHtml(selectedCustomer.phone||"Sin teléfono")}
+              </div>
+              ${selectedCustomer.address ? `
+                <div style="font-size:12px;color:var(--dim);margin-top:3px">
+                  ${escapeHtml(selectedCustomer.address)}
+                </div>
+              ` : ""}
             </div>
-          ` : ""}
+            <button type="button" class="btn-ghost btn-sm" id="clearOrderCust" title="Quitar cliente seleccionado">✕</button>
+          </div>
         </div>
       ` : ""}
 
@@ -1551,9 +1556,9 @@ document.addEventListener("click", async e=>{
   const t=e.target;
     /* ---------- CLIENTE RÁPIDO EN NUEVA ORDEN ---------- */
 
-  if(t.id==="quickNewCustomer"){
+  if(t.closest("#quickNewCustomer")){
     state.quickCustomerOpen=true;
-    render();
+    refreshOrderModal();
 
     setTimeout(()=>{
       const el=document.getElementById("qc-name");
@@ -1563,8 +1568,15 @@ document.addEventListener("click", async e=>{
     return;
   }
 
-  if(t.id==="cancelQuickCustomer"){
+  if(t.closest("#cancelQuickCustomer")){
     state.quickCustomerOpen=false;
+    refreshOrderModal();
+    return;
+  }
+
+  if(t.closest("#clearOrderCust")){
+    state.orderCustomer=null;
+    state.orderCustomerSearch="";
     refreshOrderModal();
     return;
   }
