@@ -1038,7 +1038,8 @@ function ordenesView(){
 }
 
 function orderBuilderHtml(){
-  const products = cache.products.filter(p=>p.available);
+  const term = (state.orderProdSearch||"").toLowerCase();
+  const products = cache.products.filter(p=>p.available && (!term || p.name.toLowerCase().includes(term)));
   const customers = cache.customers;
   const zones = cache.zones.filter(z=>z.active!==false);
 
@@ -1168,25 +1169,30 @@ function orderBuilderHtml(){
     <div class="field">
       <label>Productos</label>
 
+      <input
+        id="ob-prod-search"
+        type="text"
+        placeholder="🔎 Buscar platillo..."
+        value="${escapeHtml(state.orderProdSearch||"")}"
+        autocomplete="off"
+        style="margin-bottom:8px"
+      >
+
       <div class="panel" style="max-height:220px;overflow-y:auto;padding:6px 12px">
-        ${products.map(p=>`
-          <div class="prod-pick">
+        ${products.map(p=>{ const inCart=state.orderCart.find(l=>l.productId===p.id); return `
+          <div class="prod-pick" data-add="${p.id}" style="cursor:pointer">
             <span>
               ${escapeHtml(p.name)}
               <span style="color:var(--dim)">
                 · ${fmt$(p.price)}
                 ${p.stock!==null&&p.stock!==undefined ? ` · stock: ${p.stock}` : ""}
               </span>
+              ${inCart ? `<b style="color:var(--accent)"> · ${inCart.qty} en carrito</b>` : ""}
             </span>
 
-            <button
-              class="btn-ghost btn-sm"
-              data-add="${p.id}"
-            >
-              Agregar
-            </button>
+            <span style="color:var(--accent);font-weight:700;font-size:18px">+</span>
           </div>
-        `).join("") || '<div class="empty">No hay productos disponibles</div>'}
+        `; }).join("") || '<div class="empty">No hay platillos que coincidan</div>'}
       </div>
     </div>
 
@@ -1642,7 +1648,7 @@ document.addEventListener("click", async e=>{
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
-  if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderCustomerSearch=""; state.quickCustomerOpen=false; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.modal="order"; render(); }
+  if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderCustomerSearch=""; state.quickCustomerOpen=false; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.orderProdSearch=""; state.modal="order"; render(); }
   if(t.dataset.ticket){ const o=cache.orders.find(x=>x.id===t.dataset.ticket); if(o) openTicketForOrder(o); }
 
   if(t.id==="saveConfig"){
@@ -1752,51 +1758,16 @@ document.addEventListener("input", e=>{
     }
   }
 
-});
-document.addEventListener("input", e=>{
-
-  if(e.target.id==="pSearch"){
-    state.search=e.target.value;
-
-    const pos=e.target.selectionStart;
-
-    render();
-
-    const el=document.getElementById("pSearch");
-
-    if(el){
-      el.focus();
-      el.selectionStart=el.selectionEnd=pos;
-    }
-  }
-
-  if(e.target.id==="ob-cust-search"){
-    state.orderCustomerSearch=e.target.value;
-
-    const pos=e.target.selectionStart;
-
-    render();
-
-    const el=document.getElementById("ob-cust-search");
-
-    if(el){
-      el.focus();
-      el.selectionStart=el.selectionEnd=pos;
-    }
-  }
-
   if(e.target.id==="f-amount-bs" || e.target.id==="f-rate"){
     const bs=parseFloat(document.getElementById("f-amount-bs")?.value)||0;
     const rate=parseFloat(document.getElementById("f-rate")?.value)||0;
     const usd=rate>0 ? bs/rate : 0;
 
     const usdInput=document.getElementById("f-amount");
-
     if(usdInput){
       usdInput.value=usd>0 ? usd.toFixed(2) : "";
     }
   }
-
 });
 
 /* ---------- ARRANQUE ---------- */
