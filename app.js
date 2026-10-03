@@ -10,14 +10,35 @@ const SUPABASE_URL = "https://nckixbdxifkibzczpiox.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_hPMA7Elf8N02liO33NyGgg_Idkecirf";
 const TZ = "America/Caracas";
 
-const { createClient } = supabase;
 let sb;
+
 try{
-  if(typeof supabase === "undefined") throw new Error("No se pudo cargar la librería de Supabase (¿sin conexión a internet?)");
-  if(!SUPABASE_URL || SUPABASE_URL.indexOf("PEGA_AQUI") === 0) throw new Error("Falta configurar SUPABASE_URL y SUPABASE_ANON_KEY en app.js");
-  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  if(typeof supabase === "undefined"){
+    throw new Error(
+      "No se pudo cargar la librería de Supabase. Revisa tu conexión a internet."
+    );
+  }
+
+  const { createClient } = supabase;
+
+  if(
+    !SUPABASE_URL ||
+    SUPABASE_URL.indexOf("PEGA_AQUI") === 0
+  ){
+    throw new Error(
+      "Falta configurar SUPABASE_URL y SUPABASE_ANON_KEY en app.js"
+    );
+  }
+
+  sb = createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+  );
+
 }catch(e){
-  console.error(e);
+
+  console.error("Error iniciando Supabase:", e);
+
 }
 function showFatalError(){
   const root=document.getElementById("root");
@@ -71,6 +92,7 @@ function friendlyError(e){
   console.error(e);
   const msg = (e && e.message) || "";
   if(msg.includes("Stock insuficiente")) return msg;
+  if(msg.includes("Inventario insuficiente")) return msg;
   if(msg.includes("no encontrado")) return msg;
   if(msg.toLowerCase().includes("invalid login")) return "Correo o contraseña incorrectos";
   if(msg.toLowerCase().includes("failed to fetch")) return "Sin conexión a internet. Intenta de nuevo.";
@@ -89,7 +111,7 @@ const Api = {
   async remove(table, id){ const {error}=await sb.from(table).delete().eq("id",id); if(error) throw error; }
 };
 
-let cache = { products:[], customers:[], orders:[], orderItemsAll:[], expenses:[], providers:[], zones:[], config:{name:"COCHI",phone:"",address:"",exchange_rate:1} };
+let cache = { products:[], customers:[], orders:[], orderItemsAll:[], expenses:[], providers:[], zones:[], ingredients:[], config:{name:"COCHI",phone:"",address:"",exchange_rate:1} };
 
 async function loadProducts(){ cache.products = await Api.list("products",{col:"name",asc:true}); }
 async function loadCustomers(){ cache.customers = await Api.list("customers",{col:"name",asc:true}); }
@@ -108,8 +130,9 @@ async function loadExpenses(){
 }
 async function loadProviders(){ cache.providers = await Api.list("providers",{col:"name",asc:true}); }
 async function loadZones(){ cache.zones = await Api.list("delivery_zones",{col:"name",asc:true}); }
+async function loadIngredients(){ cache.ingredients = await Api.list("ingredients",{col:"name",asc:true}); }
 async function loadConfig(){ const {data,error}=await sb.from("config").select("*").eq("id",1).single(); if(error) throw error; cache.config=data; applyTheme(); }
-async function loadAll(){ await Promise.all([loadProducts(),loadCustomers(),loadOrdersAndItems(),loadExpenses(),loadProviders(),loadZones(),loadConfig()]); }
+async function loadAll(){ await Promise.all([loadProducts(),loadCustomers(),loadOrdersAndItems(),loadExpenses(),loadProviders(),loadZones(),loadIngredients(),loadConfig()]); }
 
 let realtimeStarted = false;
 function watch(table, loader){
@@ -121,6 +144,7 @@ function initRealtime(){
   watch("orders", loadOrdersAndItems); watch("order_items", loadOrdersAndItems);
   watch("expenses", loadExpenses); watch("providers", loadProviders);
   watch("delivery_zones", loadZones); watch("config", loadConfig);
+  watch("ingredients", loadIngredients);
 }
 
 /* ---------- estado ---------- */
@@ -165,10 +189,10 @@ function wireLogin(){
   document.getElementById("lp").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 }
 
-const NAV = [["dashboard","📊 Dashboard"],["ordenes","🧾 Órdenes"],["productos","🍗 Productos"],["clientes","👤 Clientes"],["gastos","💸 Gastos"],["proveedores","🏭 Proveedores"],["config","⚙️ Configuración"]];
+const NAV = [["dashboard","📊 Dashboard"],["ordenes","🧾 Órdenes"],["productos","🍗 Productos"],["inventario","📦 Inventario"],["clientes","👤 Clientes"],["gastos","💸 Gastos"],["proveedores","🏭 Proveedores"],["config","⚙️ Configuración"]];
 
 function shellView(){
-  const views = { dashboard:dashboardView, ordenes:ordenesView, productos:productosView, clientes:clientesView, gastos:gastosView, proveedores:proveedoresView, config:configView };
+  const views = { dashboard:dashboardView, ordenes:ordenesView, productos:productosView, inventario:inventarioView, clientes:clientesView, gastos:gastosView, proveedores:proveedoresView, config:configView };
   const body = (views[state.route]||dashboardView)();
   return `<div id="shell">
     <div id="sidebar">
@@ -441,8 +465,13 @@ function productosView(){
     <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-prod="${p.id}">Editar</button> <button class="btn-danger btn-sm" data-del-prod="${p.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="8" class="empty">No hay productos</td></tr>'}
   </tbody></table></div>`;
 }
+function mermaFactor(merma){ return Math.max(1 - (Number(merma)||0)/100, 0.01); }
+function recipeLineCost(ing, qty){ return (Number(ing.cost)||0) * Number(qty) / mermaFactor(ing.merma_percent); }
+
 function productFormHtml(p){
   p = p || {id:"",name:"",category:"",price:"",stock:"",available:true};
+  const recipe = state.editingProdRecipe||[];
+  const recipeTotalCost = recipe.reduce((s,r)=>s+recipeLineCost(r.ingredients,r.quantity),0);
   return `<h3>${p.id?"Editar producto":"Nuevo producto"}</h3>
     <div class="field"><label>Nombre</label><input id="f-name" value="${p.name}"></div>
     <div class="row2">
@@ -451,7 +480,54 @@ function productFormHtml(p){
     </div>
     <div class="field"><label>Cantidad disponible (déjalo vacío si no llevas control de stock)</label><input id="f-stock" type="number" step="1" value="${p.stock??""}"></div>
     <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="f-avail" style="width:auto" ${p.available?"checked":""}> Disponible</label>
+    ${p.id ? `
+    <div class="field" style="margin-top:6px">
+      <label>Receta (ingredientes que consume 1 unidad vendida)</label>
+      <div class="panel" style="padding:10px">
+        ${recipe.map(r=>`<div class="summary-line"><span>${escapeHtml(r.ingredients.name)} — ${r.quantity} ${escapeHtml(r.ingredients.unit)}${Number(r.ingredients.merma_percent)>0?` <span style="color:var(--dim)">(merma ${r.ingredients.merma_percent}%)</span>`:""}</span><span style="display:flex;align-items:center;gap:8px">${fmt$(recipeLineCost(r.ingredients,r.quantity))}<button type="button" class="btn-danger btn-sm" data-del-recipe="${r.id}">Quitar</button></span></div>`).join("") || '<div style="color:var(--dim);font-size:13px">Sin receta definida — esta venta no descontará inventario</div>'}
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <select id="rec-ing" style="flex:2"><option value="">Selecciona ingrediente...</option>${cache.ingredients.map(i=>`<option value="${i.id}">${escapeHtml(i.name)} (${escapeHtml(i.unit)})</option>`).join("")}</select>
+          <input id="rec-qty" type="number" step="0.01" placeholder="Cantidad" style="flex:1">
+          <button type="button" class="btn-ghost btn-sm" id="addRecipeRow">+ Agregar</button>
+        </div>
+        ${recipe.length ? `
+        <div class="summary-line total" style="margin-top:8px"><span>Costo estimado del platillo</span><span>${fmt$(recipeTotalCost)}</span></div>
+        <div class="summary-line" style="color:var(--dim)"><span>Margen estimado (precio actual − costo)</span><span>${fmt$(Number(p.price||0)-recipeTotalCost)}</span></div>` : ""}
+      </div>
+    </div>` : `<div style="font-size:12px;color:var(--dim);margin-top:6px">Guarda el producto primero para poder definirle una receta.</div>`}
     <div class="modal-actions"><button class="btn-ghost" id="cancel">Cancelar</button><button class="btn-primary" id="save">Guardar</button></div>`;
+}
+
+/* ---------- INVENTARIO ---------- */
+function inventarioView(){
+  const items = cache.ingredients.filter(i=>!state.search || i.name.toLowerCase().includes(state.search.toLowerCase()));
+  const low = cache.ingredients.filter(i=>Number(i.min_stock)>0 && Number(i.stock)<=Number(i.min_stock));
+  return `<div class="topbar"><h2>Inventario</h2><button class="btn-primary" id="newIng">+ Nuevo ingrediente</button></div>
+  ${low.length ? `<div class="panel" style="padding:14px;margin-bottom:16px;border:1px solid var(--red)">
+    <div style="color:var(--red);font-weight:600;margin-bottom:6px">⚠️ Inventario bajo (${low.length})</div>
+    ${low.map(i=>`<div class="summary-line"><span>${escapeHtml(i.name)}</span><span>${i.stock} ${escapeHtml(i.unit)} <span style="color:var(--dim)">(mínimo ${i.min_stock})</span></span></div>`).join("")}
+  </div>` : ""}
+  <div class="toolbar"><input id="pSearch" placeholder="Buscar ingrediente..." value="${state.search}"></div>
+  <div class="panel"><table><thead><tr><th>Nombre</th><th>Unidad</th><th>Stock</th><th>Mínimo</th><th>Costo/unidad</th><th>Merma</th><th></th></tr></thead><tbody>
+  ${items.map(i=>{ const isLow=Number(i.min_stock)>0 && Number(i.stock)<=Number(i.min_stock);
+    return `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(i.unit)}</td><td>${isLow?`<span style="color:var(--red);font-weight:600">${i.stock}</span>`:i.stock}</td><td>${i.min_stock}</td><td>${fmt$(i.cost)}</td><td>${i.merma_percent}%</td>
+    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-ing="${i.id}">Editar</button> <button class="btn-danger btn-sm" data-del-ing="${i.id}">Eliminar</button></td></tr>`;}).join("") || '<tr><td colspan="7" class="empty">No hay ingredientes registrados</td></tr>'}
+  </tbody></table></div>`;
+}
+function ingredientFormHtml(i){
+  i = i || {id:"",name:"",unit:"unidad",stock:0,min_stock:0,cost:0,merma_percent:0};
+  return `<h3>${i.id?"Editar ingrediente":"Nuevo ingrediente"}</h3>
+  <div class="field"><label>Nombre</label><input id="f-name" value="${i.name}" placeholder="Ej: Pollo, Arroz, Bolsa de empaque..."></div>
+  <div class="row2">
+    <div class="field"><label>Unidad</label><input id="f-unit" value="${i.unit}" placeholder="kg, g, l, unidad..."></div>
+    <div class="field"><label>Costo por unidad (USD)</label><input id="f-cost" type="number" step="0.01" value="${i.cost}"></div>
+  </div>
+  <div class="row2">
+    <div class="field"><label>Stock actual</label><input id="f-stock" type="number" step="0.01" value="${i.stock}"></div>
+    <div class="field"><label>Cantidad mínima (para avisar bajo stock)</label><input id="f-minstock" type="number" step="0.01" value="${i.min_stock}"></div>
+  </div>
+  <div class="field"><label>Merma (%) — cuánto se pierde al preparar este ingrediente, ej. costilla ≈ 30</label><input id="f-merma" type="number" step="0.01" min="0" max="99" value="${i.merma_percent}"></div>
+  <div class="modal-actions"><button class="btn-ghost" id="cancel">Cancelar</button><button class="btn-primary" id="save">Guardar</button></div>`;
 }
 
 /* ---------- CLIENTES ---------- */
@@ -1360,6 +1436,7 @@ function openModal(name){
   const wrap=document.createElement("div"); wrap.className="overlay"; wrap.id="overlay";
   const box=document.createElement("div"); box.className="modal";
   if(name==="prod") box.innerHTML = productFormHtml(state.editingProd);
+  if(name==="ing") box.innerHTML = ingredientFormHtml(state.editingIng);
   if(name==="cust") box.innerHTML = customerFormHtml(state.editingCust);
   if(name==="exp") box.innerHTML = expenseFormHtml(state.editingExp);
   if(name==="prov") box.innerHTML = providerFormHtml(state.editingProv);
@@ -1392,7 +1469,37 @@ function wireModal(name){
       if(!val.name){ toast("El nombre es obligatorio", true); throw new Error("__validation"); }
       if(val.price<0){ toast("El precio no puede ser negativo", true); throw new Error("__validation"); }
       if(state.editingProd) await Api.update("products", state.editingProd.id, val); else await Api.insert("products", val);
-      await loadProducts(); state.editingProd=null; closeModal(); render(); toast("Producto guardado");
+      await loadProducts(); state.editingProd=null; state.editingProdRecipe=[]; closeModal(); render(); toast("Producto guardado");
+    });
+    const addRecBtn=document.getElementById("addRecipeRow");
+    if(addRecBtn) addRecBtn.onclick=async ()=>{
+      const ingId=document.getElementById("rec-ing").value;
+      const qty=parseFloat(document.getElementById("rec-qty").value);
+      if(!ingId || !qty || qty<=0){ toast("Selecciona un ingrediente y una cantidad válida", true); return; }
+      try{
+        const existing=(state.editingProdRecipe||[]).find(r=>r.ingredient_id===ingId);
+        if(existing) await Api.update("product_ingredients", existing.id, {quantity:qty});
+        else await Api.insert("product_ingredients", {product_id:state.editingProd.id, ingredient_id:ingId, quantity:qty});
+        const {data,error}=await sb.from("product_ingredients").select("*, ingredients(name,unit,cost,merma_percent)").eq("product_id", state.editingProd.id);
+        if(error) throw error;
+        state.editingProdRecipe=data;
+        refreshProdModal();
+      }catch(e){ toast(friendlyError(e), true); }
+    };
+  }
+  if(name==="ing"){
+    saveBtn.onclick = busySave(saveBtn, async ()=>{
+      const val={
+        name:document.getElementById("f-name").value.trim(),
+        unit:document.getElementById("f-unit").value.trim()||"unidad",
+        stock:parseFloat(document.getElementById("f-stock").value)||0,
+        min_stock:parseFloat(document.getElementById("f-minstock").value)||0,
+        cost:parseFloat(document.getElementById("f-cost").value)||0,
+        merma_percent:Math.min(99,Math.max(0,parseFloat(document.getElementById("f-merma").value)||0))
+      };
+      if(!val.name){ toast("El nombre es obligatorio", true); throw new Error("__validation"); }
+      if(state.editingIng) await Api.update("ingredients", state.editingIng.id, val); else await Api.insert("ingredients", val);
+      await loadIngredients(); state.editingIng=null; closeModal(); render(); toast("Ingrediente guardado");
     });
   }
   if(name==="cust"){
@@ -1471,6 +1578,7 @@ if(val.exchange_rate<=0){
   }
 }
 function refreshOrderModal(){ const box=document.querySelector(".modal"); box.innerHTML = orderBuilderHtml(); wireModal("order"); }
+function refreshProdModal(){ const box=document.querySelector(".modal"); if(box){ box.innerHTML = productFormHtml(state.editingProd); wireModal("prod"); } }
 
 async function saveOrder(){
   const custId=document.getElementById("ob-cust").value;
@@ -1644,9 +1752,30 @@ document.addEventListener("click", async e=>{
     return;
 
   }
-  if(t.id==="newProd"){ state.editingProd=null; state.modal="prod"; render(); }
-  if(t.dataset.editProd){ state.editingProd=cache.products.find(p=>p.id===t.dataset.editProd); state.modal="prod"; render(); }
+  if(t.id==="newProd"){ state.editingProd=null; state.editingProdRecipe=[]; state.modal="prod"; render(); }
+  if(t.dataset.editProd){
+    state.editingProd=cache.products.find(p=>p.id===t.dataset.editProd);
+    state.editingProdRecipe=[];
+    state.modal="prod"; render();
+    try{
+      const {data,error}=await sb.from("product_ingredients").select("*, ingredients(name,unit,cost,merma_percent)").eq("product_id", t.dataset.editProd);
+      if(error) throw error;
+      state.editingProdRecipe=data;
+      refreshProdModal();
+    }catch(e){ toast(friendlyError(e), true); }
+  }
   if(t.dataset.delProd){ if(confirm("¿Eliminar este producto?")){ try{ await Api.remove("products", t.dataset.delProd); await loadProducts(); render(); }catch(e){ toast(friendlyError(e), true); } } }
+  if(t.dataset.delRecipe){
+    try{
+      await Api.remove("product_ingredients", t.dataset.delRecipe);
+      state.editingProdRecipe = (state.editingProdRecipe||[]).filter(r=>r.id!==t.dataset.delRecipe);
+      refreshProdModal();
+    }catch(e){ toast(friendlyError(e), true); }
+  }
+
+  if(t.id==="newIng"){ state.editingIng=null; state.modal="ing"; render(); }
+  if(t.dataset.editIng){ state.editingIng=cache.ingredients.find(i=>i.id===t.dataset.editIng); state.modal="ing"; render(); }
+  if(t.dataset.delIng){ if(confirm("¿Eliminar este ingrediente? También se quitará de las recetas que lo usen.")){ try{ await Api.remove("ingredients", t.dataset.delIng); await loadIngredients(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
   if(t.id==="newCust"){ state.editingCust=null; state.modal="cust"; render(); }
   if(t.dataset.editCust){ state.editingCust=cache.customers.find(c=>c.id===t.dataset.editCust); state.modal="cust"; render(); }
