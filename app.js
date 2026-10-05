@@ -10,10 +10,10 @@ const SUPABASE_URL = "https://nckixbdxifkibzczpiox.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_hPMA7Elf8N02liO33NyGgg_Idkecirf";
 const TZ = "America/Caracas";
 
-const { createClient } = supabase;
 let sb;
 try{
   if(typeof supabase === "undefined") throw new Error("No se pudo cargar la librería de Supabase (¿sin conexión a internet?)");
+  const { createClient } = supabase;
   if(!SUPABASE_URL || SUPABASE_URL.indexOf("PEGA_AQUI") === 0) throw new Error("Falta configurar SUPABASE_URL y SUPABASE_ANON_KEY en app.js");
   sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }catch(e){
@@ -89,9 +89,14 @@ const Api = {
   async remove(table, id){ const {error}=await sb.from(table).delete().eq("id",id); if(error) throw error; }
 };
 
-let cache = { products:[], customers:[], orders:[], orderItemsAll:[], expenses:[], providers:[], zones:[], config:{name:"COCHI",phone:"",address:"",exchange_rate:1} };
+let cache = { products:[], customers:[], orders:[], orderItemsAll:[], expenses:[], providers:[], zones:[], inventory:[], productIngredients:[], config:{name:"COCHI",phone:"",address:"",exchange_rate:1} };
 
 async function loadProducts(){ cache.products = await Api.list("products",{col:"name",asc:true}); }
+async function loadInventory(){ cache.inventory = await Api.list("ingredients",{col:"name",asc:true}); }
+async function loadProductIngredients(){
+  const {data,error}=await sb.from("product_ingredients").select("*, ingredients(name,unit,cost,merma_percent)").order("created_at",{ascending:true});
+  if(error) throw error; cache.productIngredients=data||[];
+}
 async function loadCustomers(){ cache.customers = await Api.list("customers",{col:"name",asc:true}); }
 async function loadOrders(){
   const {data,error} = await sb.from("orders").select("*, customers(name,phone,address)").order("order_number",{ascending:false});
@@ -109,7 +114,7 @@ async function loadExpenses(){
 async function loadProviders(){ cache.providers = await Api.list("providers",{col:"name",asc:true}); }
 async function loadZones(){ cache.zones = await Api.list("delivery_zones",{col:"name",asc:true}); }
 async function loadConfig(){ const {data,error}=await sb.from("config").select("*").eq("id",1).single(); if(error) throw error; cache.config=data; applyTheme(); }
-async function loadAll(){ await Promise.all([loadProducts(),loadCustomers(),loadOrdersAndItems(),loadExpenses(),loadProviders(),loadZones(),loadConfig()]); }
+async function loadAll(){ await Promise.all([loadProducts(),loadInventory(),loadProductIngredients(),loadCustomers(),loadOrdersAndItems(),loadExpenses(),loadProviders(),loadZones(),loadConfig()]); }
 
 let realtimeStarted = false;
 function watch(table, loader){
@@ -117,14 +122,14 @@ function watch(table, loader){
 }
 function initRealtime(){
   if(realtimeStarted) return; realtimeStarted = true;
-  watch("products", loadProducts); watch("customers", loadCustomers);
+  watch("products", loadProducts); watch("ingredients", loadInventory); watch("product_ingredients", loadProductIngredients); watch("customers", loadCustomers);
   watch("orders", loadOrdersAndItems); watch("order_items", loadOrdersAndItems);
   watch("expenses", loadExpenses); watch("providers", loadProviders);
   watch("delivery_zones", loadZones); watch("config", loadConfig);
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"" };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", inventorySearch:"", inventoryLowOnly:false };
 
 async function initApp(){
   try{ await loadAll(); initRealtime(); render(); }
@@ -165,10 +170,10 @@ function wireLogin(){
   document.getElementById("lp").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 }
 
-const NAV = [["dashboard","📊 Dashboard"],["ordenes","🧾 Órdenes"],["productos","🍗 Productos"],["clientes","👤 Clientes"],["gastos","💸 Gastos"],["proveedores","🏭 Proveedores"],["config","⚙️ Configuración"]];
+const NAV = [["dashboard","📊 Dashboard"],["ordenes","🧾 Órdenes"],["productos","🍗 Platillos"],["inventario","📦 Inventario"],["clientes","👤 Clientes"],["gastos","💸 Gastos"],["proveedores","🏭 Proveedores"],["config","⚙️ Configuración"]];
 
 function shellView(){
-  const views = { dashboard:dashboardView, ordenes:ordenesView, productos:productosView, clientes:clientesView, gastos:gastosView, proveedores:proveedoresView, config:configView };
+  const views = { dashboard:dashboardView, ordenes:ordenesView, productos:productosView, inventario:inventarioView, clientes:clientesView, gastos:gastosView, proveedores:proveedoresView, config:configView };
   const body = (views[state.route]||dashboardView)();
   return `<div id="shell">
     <div id="sidebar">
@@ -186,6 +191,8 @@ function wireShell(){
     state.modal=null;
     state.search="";
     state.filterStatus="";
+    state.inventorySearch="";
+    state.inventoryLowOnly=false;
     render();
   });
   const lo=document.getElementById("logout");
@@ -289,6 +296,8 @@ function dashboardView(){
   /* ---------- ÚLTIMAS ÓRDENES ---------- */
 
   const latestOrders = orders.slice(0,5);
+  const lowStock = (cache.inventory||[]).filter(i=>i.active!==false && ((Number(i.stock||0) <= Number(i.min_stock||0) && Number(i.min_stock||0)>0) || Number(i.stock||0)<=0));
+  const inventoryValue = (cache.inventory||[]).filter(i=>i.active!==false).reduce((s,i)=>s + Number(i.stock||0)*Number(i.cost||0),0);
 
   return `
     <div class="topbar">
@@ -336,6 +345,18 @@ function dashboardView(){
       <div class="card">
         <div class="label">Clientes registrados</div>
         <div class="val">${clientes}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Alertas de inventario</div>
+        <div class="val" style="color:${lowStock.length?"var(--red)":"var(--green)"}">${lowStock.length}</div>
+        <div class="sub">${lowStock.length?"productos por reponer":"Todo en niveles normales"}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Valor del inventario</div>
+        <div class="val">${fmt$(inventoryValue)}</div>
+        <div class="sub">costo actual estimado</div>
       </div>
 
     </div>
@@ -400,6 +421,11 @@ function dashboardView(){
 
     </div>
 
+    <div class="panel" style="padding:18px;margin-bottom:24px">
+      <div style="color:var(--dim);font-size:14px;margin-bottom:8px">Alertas de inventario</div>
+      ${lowStock.length ? lowStock.map(i=>`<div class="summary-line"><span>⚠️ ${escapeHtml(i.name)}</span><span>${Number(i.stock||0).toFixed(2)} ${escapeHtml(i.unit)} / mínimo ${Number(i.min_stock||0).toFixed(2)}</span></div>`).join("") : '<div style="color:var(--green);font-size:13px">✓ No hay productos por debajo del mínimo.</div>'}
+    </div>
+
     <div class="panel" style="padding:18px">
 
       <div style="
@@ -432,26 +458,76 @@ function dashboardView(){
 /* ---------- PRODUCTOS ---------- */
 function productosView(){
   const items = cache.products.filter(p=>!state.search || p.name.toLowerCase().includes(state.search.toLowerCase()));
-  return `<div class="topbar"><h2>Productos</h2><button class="btn-primary" id="newProd">+ Nuevo producto</button></div>
-  <div class="toolbar"><input id="pSearch" placeholder="Buscar producto..." value="${state.search}"></div>
-  <div class="panel"><table><thead><tr><th>Nombre</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr></thead><tbody>
-  ${items.map(p=>`<tr><td>${p.name}</td><td>${p.category||"—"}</td><td>${fmt$(p.price)} <span style="color:var(--dim)">/ ${fmtBs(p.price)}</span></td>
-    <td>${p.stock===null||p.stock===undefined?"—":p.stock}</td>
-    <td><span class="badge ${p.available?'b-completada':'b-cancelada'}">${p.available?'Disponible':'No disponible'}</span></td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-prod="${p.id}">Editar</button> <button class="btn-danger btn-sm" data-del-prod="${p.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="8" class="empty">No hay productos</td></tr>'}
+  return `<div class="topbar"><h2>Platillos</h2><button class="btn-primary" id="newProd">+ Nuevo platillo</button></div>
+  <div class="toolbar"><input id="pSearch" placeholder="Buscar platillo..." value="${escapeHtml(state.search)}"></div>
+  <div class="panel"><table><thead><tr><th>Nombre</th><th>Categoría</th><th>Venta</th><th>Costo estimado</th><th>Margen</th><th>Receta</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${items.map(p=>{ const c=recipeCost(p.id); const margin=Number(p.price||0)-c; const pct=Number(p.price||0)>0 ? (margin/Number(p.price))*100 : 0; const rec=productRecipe(p.id).length; return `<tr><td><b>${escapeHtml(p.name)}</b></td><td>${escapeHtml(p.category||"—")}</td><td>${fmt$(p.price)} <span style="color:var(--dim)">/ ${fmtBs(p.price)}</span></td><td>${rec?fmt$(c):"—"}</td><td>${rec?fmt$(margin)+` <span style="color:var(--dim)">(${pct.toFixed(1)}%)</span>`:"—"}</td><td>${rec?rec+" ingred.":"Sin receta"}</td><td><span class="badge ${p.available?'b-completada':'b-cancelada'}">${p.available?'Disponible':'No disponible'}</span></td><td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-prod="${p.id}">Editar</button> <button class="btn-danger btn-sm" data-del-prod="${p.id}">Eliminar</button></td></tr>`;}).join("") || '<tr><td colspan="8" class="empty">No hay platillos</td></tr>'}
   </tbody></table></div>`;
 }
+function recipeCost(productId){
+  return (cache.productIngredients||[]).filter(r=>r.product_id===productId).reduce((sum,r)=>{
+    const q=Number(r.quantity||0);
+    const c=Number(r.ingredients?.cost||0);
+    const waste=Math.min(99.99,Math.max(0,Number(r.ingredients?.merma_percent||0)));
+    return sum + (waste>=100 ? 0 : (q*c/(1-waste/100)));
+  },0);
+}
+function productRecipe(productId){ return (cache.productIngredients||[]).filter(r=>r.product_id===productId); }
 function productFormHtml(p){
   p = p || {id:"",name:"",category:"",price:"",stock:"",available:true};
-  return `<h3>${p.id?"Editar producto":"Nuevo producto"}</h3>
-    <div class="field"><label>Nombre</label><input id="f-name" value="${p.name}"></div>
+  const recipe=productRecipe(p.id);
+  const cost=recipeCost(p.id);
+  return `<h3>${p.id?"Editar platillo":"Nuevo platillo"}</h3>
+    <div class="field"><label>Nombre</label><input id="f-name" value="${escapeHtml(p.name||"")}"></div>
     <div class="row2">
-      <div class="field"><label>Categoría</label><input id="f-cat" value="${p.category||""}" placeholder="Pollos, Bebidas..."></div>
-      <div class="field"><label>Precio (USD)</label><input id="f-price" type="number" step="0.01" value="${p.price}"></div>
+      <div class="field"><label>Categoría</label><input id="f-cat" value="${escapeHtml(p.category||"")}" placeholder="Pollos, Hamburguesas..."></div>
+      <div class="field"><label>Precio de venta (USD)</label><input id="f-price" type="number" step="0.01" value="${p.price??""}"></div>
     </div>
-    <div class="field"><label>Cantidad disponible (déjalo vacío si no llevas control de stock)</label><input id="f-stock" type="number" step="1" value="${p.stock??""}"></div>
+    <div class="field"><label>Stock propio del platillo (opcional / legado)</label><input id="f-stock" type="number" step="1" value="${p.stock??""}"></div>
     <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="f-avail" style="width:auto" ${p.available?"checked":""}> Disponible</label>
+    ${p.id ? `
+      <div class="panel" style="padding:14px;margin-top:16px">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">
+          <div><b>Receta / ingredientes</b><div style="font-size:12px;color:var(--dim)">La cantidad debe usar la misma unidad del inventario.</div></div>
+          <div style="text-align:right"><div style="font-size:12px;color:var(--dim)">Costo estimado</div><b style="font-size:18px">${fmt$(cost)}</b></div>
+        </div>
+        ${recipe.length ? recipe.map(r=>`<div class="summary-line" style="gap:8px"><span>${escapeHtml(r.ingredients?.name||"Ingrediente")}</span><span>${Number(r.quantity||0).toFixed(3)} ${escapeHtml(r.ingredients?.unit||"")} · ${fmt$(Number(r.quantity||0)*Number(r.ingredients?.cost||0)/(1-Math.min(99.99,Math.max(0,Number(r.ingredients?.merma_percent||0)))/100))} <button class="btn-danger btn-sm" data-del-recipe="${r.id}">Quitar</button></span></div>`).join("") : '<div class="empty" style="padding:14px">Este platillo todavía no tiene ingredientes.</div>'}
+        <div class="row2" style="margin-top:12px">
+          <div class="field"><label>Ingrediente</label><select id="ri-item"><option value="">Selecciona...</option>${cache.inventory.filter(i=>i.active!==false).map(i=>`<option value="${i.id}">${escapeHtml(i.name)} — ${escapeHtml(i.unit)} · ${fmt$(i.cost)}/unidad</option>`).join("")}</select></div>
+          <div class="field"><label>Cantidad por platillo</label><input id="ri-qty" type="number" step="0.001" min="0.001" placeholder="Ej: 0.300"></div>
+        </div>
+        <button class="btn-ghost btn-sm" id="addRecipeIngredient">+ Agregar ingrediente</button>
+      </div>` : `
+      <div class="panel" style="padding:12px;margin-top:14px;color:var(--dim);font-size:13px">Guarda el platillo primero. Luego podrás agregarle sus ingredientes y el sistema calculará automáticamente su costo.</div>`}
     <div class="modal-actions"><button class="btn-ghost" id="cancel">Cancelar</button><button class="btn-primary" id="save">Guardar</button></div>`;
+}
+
+/* ---------- INVENTARIO ---------- */
+function inventarioView(){
+  let items=(cache.inventory||[]);
+  if(state.inventorySearch){ const q=state.inventorySearch.toLowerCase().trim(); items=items.filter(i=>(i.name||"").toLowerCase().includes(q)); }
+  if(state.inventoryLowOnly) items=items.filter(i=>i.active!==false && ((Number(i.stock||0) <= Number(i.min_stock||0) && Number(i.min_stock||0)>0) || Number(i.stock||0)<=0));
+  const low=(cache.inventory||[]).filter(i=>i.active!==false && ((Number(i.stock||0) <= Number(i.min_stock||0) && Number(i.min_stock||0)>0) || Number(i.stock||0)<=0));
+  const value=items.reduce((s,i)=>s+Number(i.stock||0)*Number(i.cost||0),0);
+  return `<div class="topbar"><h2>Inventario</h2><button class="btn-primary" id="newInventory">+ Nuevo ingrediente</button></div>
+  <div class="cards" style="margin-bottom:16px"><div class="card"><div class="label">Ingredientes activos</div><div class="val">${(cache.inventory||[]).filter(i=>i.active!==false).length}</div></div><div class="card"><div class="label">Stock bajo</div><div class="val" style="color:${low.length?'var(--red)':'var(--green)'}">${low.length}</div></div><div class="card"><div class="label">Valor mostrado</div><div class="val">${fmt$(value)}</div></div></div>
+  <div class="toolbar"><input id="inventorySearch" placeholder="Buscar ingrediente..." value="${escapeHtml(state.inventorySearch||"")}" style="flex:1;min-width:220px"><label style="display:flex;align-items:center;gap:8px;margin:0"><input id="inventoryLowOnly" type="checkbox" style="width:auto" ${state.inventoryLowOnly?'checked':''}> Solo stock bajo</label></div>
+  <div class="panel"><table><thead><tr><th>Ingrediente</th><th>Stock</th><th>Mínimo</th><th>Costo / ${"unidad"}</th><th>Merma</th><th>Valor</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${items.map(i=>{const lowi=((Number(i.stock||0) <= Number(i.min_stock||0) && Number(i.min_stock||0)>0) || Number(i.stock||0)<=0); return `<tr><td><b>${escapeHtml(i.name)}</b><div style="font-size:11px;color:var(--dim)">${escapeHtml(i.unit)}</div></td><td>${Number(i.stock||0).toFixed(3)}</td><td>${Number(i.min_stock||0).toFixed(3)}</td><td>${fmt$(i.cost)}</td><td>${Number(i.merma_percent||0).toFixed(1)}%</td><td>${fmt$(Number(i.stock||0)*Number(i.cost||0))}</td><td><span class="badge ${lowi?'b-cancelada':'b-completada'}">${lowi?'Reponer':'OK'}</span> <span class="badge ${i.active!==false?'b-completada':'b-cancelada'}">${i.active!==false?'Activo':'Inactivo'}</span></td><td style="text-align:right;white-space:nowrap"><button class="btn-ghost btn-sm" data-edit-inv="${i.id}">Editar</button> <button class="btn-ghost btn-sm" data-add-stock="${i.id}">+ Stock</button> <button class="btn-ghost btn-sm" data-waste-stock="${i.id}">Merma</button></td></tr>`;}).join("") || '<tr><td colspan="8" class="empty">No hay ingredientes registrados.</td></tr>'}
+  </tbody></table></div>`;
+}
+function inventoryFormHtml(i){
+  i=i||{id:"",name:"",unit:"kg",stock:0,min_stock:0,cost:0,merma_percent:0,active:true};
+  return `<h3>${i.id?"Editar ingrediente":"Nuevo ingrediente"}</h3>
+  <div class="field"><label>Nombre del ingrediente</label><input id="inv-name" value="${escapeHtml(i.name||"")}" placeholder="Ej: Costilla de cerdo"></div>
+  <div class="row2"><div class="field"><label>Unidad base</label><select id="inv-unit">${["kg","g","l","ml","unidad","paquete","caja"].map(u=>`<option value="${u}" ${i.unit===u?'selected':''}>${u}</option>`).join("")}</select></div><div class="field"><label>Costo por unidad (USD)</label><input id="inv-cost" type="number" step="0.0001" min="0" value="${i.cost??0}"></div></div>
+  <div class="row2"><div class="field"><label>Cantidad actual</label><input id="inv-stock" type="number" step="0.001" min="0" value="${i.stock??0}"></div><div class="field"><label>Cantidad mínima</label><input id="inv-min" type="number" step="0.001" min="0" value="${i.min_stock??0}"></div></div>
+  <div class="row2"><div class="field"><label>Merma estimada (%)</label><input id="inv-waste" type="number" step="0.1" min="0" max="99.99" value="${i.merma_percent??0}"></div><div class="field"><label>Estado</label><select id="inv-active"><option value="true" ${i.active!==false?'selected':''}>Activo</option><option value="false" ${i.active===false?'selected':''}>Inactivo</option></select></div></div>
+  <div style="font-size:12px;color:var(--dim);line-height:1.5">La merma se usa para calcular el costo real del platillo. Ejemplo: 30% de merma significa que para obtener 1 kg útil se considera un consumo de aproximadamente 1,43 kg de inventario.</div>
+  <div class="modal-actions"><button class="btn-ghost" id="cancel">Cancelar</button><button class="btn-primary" id="save">Guardar</button></div>`;
+}
+function inventoryMovementHtml(i,type){
+  return `<h3>${type==="waste"?"Registrar merma":"Agregar stock"}</h3><div style="margin-bottom:12px;color:var(--dim)">${escapeHtml(i.name)} · ${escapeHtml(i.unit)} · stock actual ${Number(i.stock||0).toFixed(3)}</div><div class="field"><label>${type==="waste"?"Cantidad que mermó":"Cantidad recibida"}</label><input id="inv-move-qty" type="number" step="0.001" min="0.001" placeholder="Ej: 2.5"></div><div class="field"><label>Nota</label><textarea id="inv-move-note" rows="2" placeholder="Ej: producto dañado, compra semanal..."></textarea></div><div class="modal-actions"><button class="btn-ghost" id="cancel">Cancelar</button><button class="btn-primary" id="save">${type==="waste"?"Registrar merma":"Agregar stock"}</button></div>`;
 }
 
 /* ---------- CLIENTES ---------- */
@@ -510,7 +586,7 @@ function gastosView(){
   </tbody></table></div>`;
 }
 function expenseFormHtml(e){
-  e = e || {id:"",expense_date:todayCaracas(),category:EXP_CATS[0],description:"",provider_id:"",amount:"",notes:""};
+  e = e || {id:"",expense_date:todayCaracas(),category:EXP_CATS[0],description:"",provider_id:"",amount:"",amount_bs:"",exchange_rate:cache.config.exchange_rate,notes:""};
   return `<h3>${e.id?"Editar gasto":"Nuevo gasto"}</h3>
   <div class="row2">
     <div class="field"><label>Fecha</label><input id="f-date" type="date" value="${e.expense_date}"></div>
@@ -1053,9 +1129,10 @@ function orderBuilderHtml(){
   let customerResults = customers.filter(c=>{
     const name = (c.name||"").toLowerCase();
     const phone = (c.phone||"").toLowerCase();
+    const address = (c.address||"").toLowerCase();
 
-    return !search || name.includes(search) || phone.includes(search);
-  }).slice(0,8);
+    return !search || name.includes(search) || phone.includes(search) || address.includes(search);
+  }).slice(0,20);
 
   const selectedCustomer = customers.find(c=>c.id===state.orderCustomer);
 
@@ -1070,7 +1147,7 @@ function orderBuilderHtml(){
       <input
         id="ob-cust-search"
         type="text"
-        placeholder="🔎 Buscar por nombre o teléfono..."
+        placeholder="🔎 Buscar por nombre, teléfono o dirección..."
         value="${escapeHtml(state.orderCustomerSearch||"")}"
         autocomplete="off"
       >
@@ -1100,7 +1177,7 @@ function orderBuilderHtml(){
         </div>
       ` : ""}
 
-      <div style="margin-top:8px">
+      <div id="orderCustomerResults" style="margin-top:8px">
         ${customerResults.length ? customerResults.map(c=>`
           <button
             type="button"
@@ -1184,13 +1261,13 @@ function orderBuilderHtml(){
       >
 
       <div class="panel" style="max-height:220px;overflow-y:auto;padding:6px 12px">
-        ${products.map(p=>{ const inCart=state.orderCart.find(l=>l.productId===p.id); return `
+        ${products.map(p=>{ const inCart=state.orderCart.find(l=>l.productId===p.id); const rc=recipeCost(p.id); return `
           <div class="prod-pick" data-add="${p.id}" style="cursor:pointer">
             <span>
               ${escapeHtml(p.name)}
               <span style="color:var(--dim)">
                 · ${fmt$(p.price)}
-                ${p.stock!==null&&p.stock!==undefined ? ` · stock: ${p.stock}` : ""}
+                ${p.stock!==null&&p.stock!==undefined ? ` · stock: ${p.stock}` : ""}${rc>0 ? ` · costo: ${fmt$(rc)}` : ""}
               </span>
               ${inCart ? `<b style="color:var(--accent)"> · ${inCart.qty} en carrito</b>` : ""}
             </span>
@@ -1359,10 +1436,12 @@ function configView(){
 function openModal(name){
   const wrap=document.createElement("div"); wrap.className="overlay"; wrap.id="overlay";
   const box=document.createElement("div"); box.className="modal";
-  if(name==="prod") box.innerHTML = productFormHtml(state.editingProd);
+  if(name==="prod") { box.style.maxWidth="760px"; box.innerHTML = productFormHtml(state.editingProd); }
   if(name==="cust") box.innerHTML = customerFormHtml(state.editingCust);
   if(name==="exp") box.innerHTML = expenseFormHtml(state.editingExp);
   if(name==="prov") box.innerHTML = providerFormHtml(state.editingProv);
+  if(name==="inventory") box.innerHTML = inventoryFormHtml(state.editingInventory);
+  if(name==="inventoryMove") box.innerHTML = inventoryMovementHtml(state.inventoryMoveItem,state.inventoryMoveType);
   if(name==="order"){ box.style.maxWidth="820px"; box.innerHTML = orderBuilderHtml(); }
   wrap.appendChild(box); document.body.appendChild(wrap);
   wrap.onclick = e=>{ if(e.target===wrap){ closeModal(); } };
@@ -1391,8 +1470,74 @@ function wireModal(name){
       const val={name:document.getElementById("f-name").value.trim(), category:document.getElementById("f-cat").value.trim(), price:parseFloat(document.getElementById("f-price").value)||0, stock:stockRaw===""?null:parseInt(stockRaw)||0, available:document.getElementById("f-avail").checked};
       if(!val.name){ toast("El nombre es obligatorio", true); throw new Error("__validation"); }
       if(val.price<0){ toast("El precio no puede ser negativo", true); throw new Error("__validation"); }
-      if(state.editingProd) await Api.update("products", state.editingProd.id, val); else await Api.insert("products", val);
-      await loadProducts(); state.editingProd=null; closeModal(); render(); toast("Producto guardado");
+      if(state.editingProd){
+        await Api.update("products", state.editingProd.id, val);
+        await loadProducts();
+        state.editingProd=cache.products.find(x=>x.id===state.editingProd.id);
+        refreshProductModal();
+        toast("Platillo guardado");
+      }else{
+        const created=await Api.insert("products", val);
+        await loadProducts();
+        state.editingProd=created;
+        refreshProductModal();
+        toast("Platillo creado. Ahora puedes agregar sus ingredientes.");
+      }
+    });
+    const addIng=document.getElementById("addRecipeIngredient");
+    if(addIng) addIng.onclick=async ()=>{
+      const itemId=document.getElementById("ri-item").value;
+      const qty=parseFloat(document.getElementById("ri-qty").value)||0;
+      if(!itemId || qty<=0){ toast("Selecciona un ingrediente y coloca una cantidad válida", true); return; }
+      try{
+        const existing=cache.productIngredients.find(r=>r.product_id===state.editingProd.id && r.ingredient_id===itemId);
+        if(existing) await Api.update("product_ingredients", existing.id, {quantity:qty});
+        else await Api.insert("product_ingredients", {product_id:state.editingProd.id,ingredient_id:itemId,quantity:qty});
+        await loadProductIngredients(); refreshProductModal(); toast("Ingrediente agregado a la receta");
+      }catch(err){ toast(friendlyError(err), true); }
+    };
+  }
+  if(name==="inventory"){
+    const saveBtn=document.getElementById("save");
+    if(saveBtn) saveBtn.onclick = busySave(saveBtn, async ()=>{
+      const namev=document.getElementById("inv-name").value.trim();
+      const unit=document.getElementById("inv-unit").value;
+      const stock=parseFloat(document.getElementById("inv-stock").value)||0;
+      const minStock=parseFloat(document.getElementById("inv-min").value)||0;
+      const cost=parseFloat(document.getElementById("inv-cost").value)||0;
+      const waste=parseFloat(document.getElementById("inv-waste").value)||0;
+      const active=document.getElementById("inv-active").value==="true";
+      if(!namev){ toast("El nombre es obligatorio", true); throw new Error("__validation"); }
+      if(stock<0 || minStock<0 || cost<0 || waste<0 || waste>=100){ toast("Revisa stock, mínimo, costo y merma", true); throw new Error("__validation"); }
+      const {data,error}=await sb.rpc("save_ingredient",{
+        p_id:state.editingInventory?.id||null,
+        p_name:namev,
+        p_unit:unit,
+        p_stock:stock,
+        p_min_stock:minStock,
+        p_cost:cost,
+        p_merma_percent:waste,
+        p_active:active
+      });
+      if(error) throw error;
+      await loadInventory(); closeModal(); render(); toast("Ingrediente guardado");
+    });
+  }
+  if(name==="inventoryMove"){
+    const saveBtn=document.getElementById("save");
+    if(saveBtn) saveBtn.onclick = busySave(saveBtn, async ()=>{
+      const qty=parseFloat(document.getElementById("inv-move-qty").value)||0;
+      const note=document.getElementById("inv-move-note").value.trim();
+      if(qty<=0){ toast("Coloca una cantidad válida", true); throw new Error("__validation"); }
+      const delta=state.inventoryMoveType==="waste" ? -qty : qty;
+      const {error}=await sb.rpc("adjust_ingredient",{
+        p_ingredient_id:state.inventoryMoveItem.id,
+        p_quantity_delta:delta,
+        p_movement_type:state.inventoryMoveType==="waste"?"merma":"entrada",
+        p_notes:note
+      });
+      if(error) throw error;
+      await loadInventory(); closeModal(); render(); toast(state.inventoryMoveType==="waste"?"Merma registrada":"Stock agregado");
     });
   }
   if(name==="cust"){
@@ -1470,6 +1615,7 @@ if(val.exchange_rate<=0){
     document.getElementById("save-order").onclick=saveOrder;
   }
 }
+function refreshProductModal(){ const box=document.querySelector(".modal"); if(box){ box.innerHTML=productFormHtml(state.editingProd); wireModal("prod"); } }
 function refreshOrderModal(){ const box=document.querySelector(".modal"); box.innerHTML = orderBuilderHtml(); wireModal("order"); }
 
 async function saveOrder(){
@@ -1549,6 +1695,32 @@ async function openTicketForOrder(o){
       customerName:o.customers?o.customers.name:"", customerPhone:o.customers?o.customers.phone:"", customerAddr:o.customers?o.customers.address:"",
       items, subtotal:Number(o.subtotal), delivery:Number(o.delivery_cost), discount:Number(o.discount), total:Number(o.total), payment:o.payment_method, rate:Number(o.exchange_rate), notes:o.notes });
   }catch(e){ toast(friendlyError(e), true); }
+}
+
+function refreshOrderCustomerResults(){
+  const input=document.getElementById("ob-cust-search");
+  const results=document.getElementById("orderCustomerResults");
+  if(!input || !results) return;
+
+  const search=(state.orderCustomerSearch||"").toLowerCase().trim();
+  const customers=cache.customers
+    .filter(c=>{
+      if(!search) return true;
+      return (c.name||"").toLowerCase().includes(search)
+        || (c.phone||"").toLowerCase().includes(search)
+        || (c.address||"").toLowerCase().includes(search);
+    })
+    .slice(0,20);
+
+  results.innerHTML=customers.length
+    ? customers.map(c=>`
+      <button type="button" class="btn-ghost" data-select-order-cust="${c.id}" style="display:block;width:100%;text-align:left;margin-bottom:5px;padding:9px 10px">
+        <div><b>${escapeHtml(c.name||"")}</b></div>
+        <div style="font-size:12px;color:var(--dim)">${escapeHtml(c.phone||"Sin teléfono")}</div>
+        <div style="font-size:12px;color:var(--dim)">${escapeHtml(c.address||"Sin dirección")}</div>
+      </button>
+    `).join("")
+    : '<div class="empty" style="padding:12px">No se encontraron clientes.</div>';
 }
 
 /* ---------- EVENTOS GLOBALES ---------- */
@@ -1644,6 +1816,12 @@ document.addEventListener("click", async e=>{
     return;
 
   }
+  if(t.id==="newInventory"){ state.editingInventory=null; state.modal="inventory"; render(); return; }
+  if(t.dataset.editInv){ state.editingInventory=cache.inventory.find(i=>i.id===t.dataset.editInv); state.modal="inventory"; render(); return; }
+  if(t.dataset.addStock){ state.inventoryMoveItem=cache.inventory.find(i=>i.id===t.dataset.addStock); state.inventoryMoveType="stock"; state.modal="inventoryMove"; render(); return; }
+  if(t.dataset.wasteStock){ state.inventoryMoveItem=cache.inventory.find(i=>i.id===t.dataset.wasteStock); state.inventoryMoveType="waste"; state.modal="inventoryMove"; render(); return; }
+  if(t.dataset.delRecipe){ if(confirm("¿Quitar este ingrediente de la receta?")){ try{ await Api.remove("product_ingredients",t.dataset.delRecipe); await loadProductIngredients(); refreshProductModal(); }catch(err){ toast(friendlyError(err),true); } } return; }
+
   if(t.id==="newProd"){ state.editingProd=null; state.modal="prod"; render(); }
   if(t.dataset.editProd){ state.editingProd=cache.products.find(p=>p.id===t.dataset.editProd); state.modal="prod"; render(); }
   if(t.dataset.delProd){ if(confirm("¿Eliminar este producto?")){ try{ await Api.remove("products", t.dataset.delProd); await loadProducts(); render(); }catch(e){ toast(friendlyError(e), true); } } }
@@ -1716,6 +1894,8 @@ document.addEventListener("change", async e=>{
 
   /* ---------- FILTRO DE ESTADO ---------- */
 
+  if(e.target.id === "inventoryLowOnly"){ state.inventoryLowOnly=e.target.checked; render(); }
+
   if(e.target.id === "fStatus"){
 
     state.filterStatus =
@@ -1740,6 +1920,14 @@ document.addEventListener("change", async e=>{
 });
 document.addEventListener("input", e=>{
 
+  if(e.target.id==="inventorySearch"){
+    state.inventorySearch=e.target.value;
+    const pos=e.target.selectionStart;
+    render();
+    const el=document.getElementById("inventorySearch");
+    if(el){ el.focus(); el.selectionStart=el.selectionEnd=pos; }
+  }
+
   if(e.target.id==="pSearch"){
     state.search=e.target.value;
 
@@ -1757,17 +1945,7 @@ document.addEventListener("input", e=>{
 
   if(e.target.id==="ob-cust-search"){
     state.orderCustomerSearch=e.target.value;
-
-    const pos=e.target.selectionStart;
-
-    render();
-
-    const el=document.getElementById("ob-cust-search");
-
-    if(el){
-      el.focus();
-      el.selectionStart=el.selectionEnd=pos;
-    }
+    refreshOrderCustomerResults();
   }
 
   if(e.target.id==="f-amount-bs" || e.target.id==="f-rate"){
