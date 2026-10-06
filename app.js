@@ -122,14 +122,14 @@ function watch(table, loader){
 }
 function initRealtime(){
   if(realtimeStarted) return; realtimeStarted = true;
-  watch("products", loadProducts); watch("ingredients", loadInventory); watch("product_ingredients", loadProductIngredients); watch("customers", loadCustomers);
+  watch("products", loadProducts); watch("ingredients", loadInventory); watch("ingredient_movements", loadInventory); watch("product_ingredients", loadProductIngredients); watch("customers", loadCustomers);
   watch("orders", loadOrdersAndItems); watch("order_items", loadOrdersAndItems);
   watch("expenses", loadExpenses); watch("providers", loadProviders);
   watch("delivery_zones", loadZones); watch("config", loadConfig);
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", inventorySearch:"", inventoryLowOnly:false };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", inventorySearch:"", inventoryLowOnly:false };
 
 async function initApp(){
   try{ await loadAll(); initRealtime(); render(); }
@@ -210,249 +210,70 @@ function statusLabel(s){
   }[s] || s;
 }
 
+/* ---------- FILTRO FINANCIERO ---------- */
+function shiftDateStr(dateStr, days){
+  const d=new Date(dateStr+"T12:00:00");
+  d.setDate(d.getDate()+days);
+  return d.toLocaleDateString("en-CA",{timeZone:TZ});
+}
+function financialRange(mode){
+  const today=todayCaracas();
+  if(mode==="month"){
+    const start=today.slice(0,7)+"-01";
+    return {start,end:today,label:"Este mes"};
+  }
+  if(mode==="weekend"){
+    const d=new Date(today+"T12:00:00");
+    const day=d.getDay();
+    const saturday=shiftDateStr(today,day===0?-1:6-day);
+    const sunday=shiftDateStr(saturday,1);
+    return {start:saturday,end:sunday,label:"Fin de semana"};
+  }
+  return {start:today,end:today,label:"Hoy"};
+}
+function inFinancialRange(dateValue,range){
+  const d=typeof dateValue==="string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue) ? dateValue : dateCaracas(dateValue);
+  return d>=range.start && d<=range.end;
+}
+function financialSummary(mode){
+  const range=financialRange(mode);
+  const sales=cache.orders.filter(o=>o.status!=="cancelada" && inFinancialRange(o.order_date,range)).reduce((s,o)=>s+Number(o.total||0),0);
+  const expenses=cache.expenses.filter(e=>inFinancialRange(e.expense_date,range)).reduce((s,e)=>s+Number(e.amount||0),0);
+  return {range,sales,expenses,balance:sales-expenses};
+}
+
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
-  const orders = cache.orders;
-  const t = todayCaracas();
-
-  const todays = orders.filter(o =>
-    dateCaracas(o.order_date) === t &&
-    o.status !== "cancelada"
-  );
-
-  const ventasHoy = todays.reduce(
-    (s,o) => s + Number(o.total || 0),
-    0
-  );
-
-  const gastosHoy = cache.expenses
-    .filter(e => e.expense_date === t)
-    .reduce((s,e) => s + Number(e.amount || 0), 0);
-
-  const gananciaHoy = ventasHoy - gastosHoy;
-
-  const ticketPromedio = todays.length
-    ? ventasHoy / todays.length
-    : 0;
-
-  const pendientes = orders.filter(o =>
-    ["pendiente","preparacion","lista","delivery"].includes(o.status)
-  ).length;
-
-  const completadasHoy = todays.filter(
-    o => o.status === "completada"
-  ).length;
-
-  const clientes = cache.customers.length;
-
-  /* ---------- PRODUCTOS MÁS VENDIDOS ---------- */
-
-  const sales = {};
-
-  (cache.orderItemsAll || []).forEach(it => {
-    if(
-      it.orders &&
-      it.orders.status !== "cancelada"
-    ){
-      sales[it.product_name] =
-        (sales[it.product_name] || 0) +
-        Number(it.quantity || 0);
-    }
-  });
-
-  const ranked = Object.entries(sales)
-    .sort((a,b) => b[1] - a[1]);
-
-  const top = ranked.slice(0,5);
-
-  const maxQty = ranked.length
-    ? ranked[0][1]
-    : 1;
-
-  const bar = (name,qty) => `
-    <div class="summary-line">
-      <span>${escapeHtml(name)}</span>
-
-      <span style="display:flex;align-items:center;gap:8px">
-
-        <span
-          style="
-            background:var(--accent);
-            height:6px;
-            width:${Math.max(
-              6,
-              Math.round((qty/maxQty)*100)
-            )}px;
-            border-radius:3px;
-            display:inline-block
-          ">
-        </span>
-
-        ${qty}
-      </span>
-    </div>
-  `;
-
-  /* ---------- ÚLTIMAS ÓRDENES ---------- */
-
-  const latestOrders = orders.slice(0,5);
-  const lowStock = (cache.inventory||[]).filter(i=>i.active!==false && ((Number(i.stock||0) <= Number(i.min_stock||0) && Number(i.min_stock||0)>0) || Number(i.stock||0)<=0));
-  const inventoryValue = (cache.inventory||[]).filter(i=>i.active!==false).reduce((s,i)=>s + Number(i.stock||0)*Number(i.cost||0),0);
-
-  return `
-    <div class="topbar">
-      <h2>Dashboard</h2>
-    </div>
-
-    <div class="cards">
-
-      <div class="card">
-        <div class="label">Ventas de hoy</div>
-        <div class="val">${fmt$(ventasHoy)}</div>
-        <div class="sub">${fmtBs(ventasHoy)}</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Gastos de hoy</div>
-        <div class="val">${fmt$(gastosHoy)}</div>
-        <div class="sub">${fmtBs(gastosHoy)}</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Ganancia estimada</div>
-        <div class="val">${fmt$(gananciaHoy)}</div>
-        <div class="sub">${fmtBs(gananciaHoy)}</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Órdenes de hoy</div>
-        <div class="val">${todays.length}</div>
-        <div class="sub">${completadasHoy} completadas</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Ticket promedio</div>
-        <div class="val">${fmt$(ticketPromedio)}</div>
-        <div class="sub">por orden</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Órdenes pendientes</div>
-        <div class="val">${pendientes}</div>
-        <div class="sub">en todo el sistema</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Clientes registrados</div>
-        <div class="val">${clientes}</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Alertas de inventario</div>
-        <div class="val" style="color:${lowStock.length?"var(--red)":"var(--green)"}">${lowStock.length}</div>
-        <div class="sub">${lowStock.length?"productos por reponer":"Todo en niveles normales"}</div>
-      </div>
-
-      <div class="card">
-        <div class="label">Valor del inventario</div>
-        <div class="val">${fmt$(inventoryValue)}</div>
-        <div class="sub">costo actual estimado</div>
-      </div>
-
-    </div>
-
-    <div class="row2" style="margin-bottom:24px">
-
-      <div class="panel" style="padding:18px">
-
-        <div style="
-          color:var(--dim);
-          font-size:14px;
-          margin-bottom:8px
-        ">
-          Productos más vendidos
-        </div>
-
-        ${
-          top.map(([n,q]) => bar(n,q)).join("")
-          ||
-          '<div class="empty" style="padding:16px">Aún no hay ventas registradas</div>'
-        }
-
-      </div>
-
-      <div class="panel" style="padding:18px">
-
-        <div style="
-          color:var(--dim);
-          font-size:14px;
-          margin-bottom:8px
-        ">
-          Últimas órdenes
-        </div>
-
-        ${
-          latestOrders.map(o => `
-            <div class="summary-line">
-
-              <span>
-                #${o.order_number}
-                —
-                ${o.customers ? escapeHtml(o.customers.name) : "—"}
-              </span>
-
-              <span>
-                ${fmt$(o.total)}
-
-                ·
-
-                <span class="badge b-${o.status}">
-                  ${statusLabel(o.status)}
-                </span>
-              </span>
-
-            </div>
-          `).join("")
-          ||
-          '<div class="empty" style="padding:16px">Aún no hay órdenes</div>'
-        }
-
-      </div>
-
-    </div>
-
-    <div class="panel" style="padding:18px;margin-bottom:24px">
-      <div style="color:var(--dim);font-size:14px;margin-bottom:8px">Alertas de inventario</div>
-      ${lowStock.length ? lowStock.map(i=>`<div class="summary-line"><span>⚠️ ${escapeHtml(i.name)}</span><span>${Number(i.stock||0).toFixed(2)} ${escapeHtml(i.unit)} / mínimo ${Number(i.min_stock||0).toFixed(2)}</span></div>`).join("") : '<div style="color:var(--green);font-size:13px">✓ No hay productos por debajo del mínimo.</div>'}
-    </div>
-
-    <div class="panel" style="padding:18px">
-
-      <div style="
-        color:var(--dim);
-        font-size:14px;
-        margin-bottom:8px
-      ">
-        Resumen del día
-      </div>
-
-      <div class="summary-line">
-        <span>Ventas</span>
-        <span>${fmt$(ventasHoy)}</span>
-      </div>
-
-      <div class="summary-line">
-        <span>Gastos</span>
-        <span>${fmt$(gastosHoy)}</span>
-      </div>
-
-      <div class="summary-line total">
-        <span>Ganancia estimada</span>
-        <span>${fmt$(gananciaHoy)}</span>
-      </div>
-
-    </div>
-  `;
+  const orders=cache.orders;
+  const period=financialSummary(state.financialPeriod||"day");
+  const todays=orders.filter(o=>dateCaracas(o.order_date)===todayCaracas() && o.status!=="cancelada");
+  const ventasHoy=todays.reduce((s,o)=>s+Number(o.total||0),0);
+  const gastosHoy=cache.expenses.filter(e=>e.expense_date===todayCaracas()).reduce((s,e)=>s+Number(e.amount||0),0);
+  const pendientes=orders.filter(o=>["pendiente","preparacion","lista","delivery"].includes(o.status)).length;
+  const completadasHoy=todays.filter(o=>o.status==="completada").length;
+  const ticketPromedio=todays.length?ventasHoy/todays.length:0;
+  const clientes=cache.customers.length;
+  const sales={};
+  (cache.orderItemsAll||[]).forEach(it=>{ if(it.orders && it.orders.status!=="cancelada") sales[it.product_name]=(sales[it.product_name]||0)+Number(it.quantity||0); });
+  const ranked=Object.entries(sales).sort((a,b)=>b[1]-a[1]);
+  const top=ranked.slice(0,5);
+  const maxQty=ranked.length?ranked[0][1]:1;
+  const bar=(name,qty)=>`<div class="summary-line"><span>${escapeHtml(name)}</span><span style="display:flex;align-items:center;gap:8px"><span style="background:var(--accent);height:6px;width:${Math.max(6,Math.round((qty/maxQty)*100))}px;border-radius:3px;display:inline-block"></span>${qty}</span></div>`;
+  const latestOrders=orders.slice(0,5);
+  const mode=state.financialPeriod||"day";
+  return `<div class="topbar"><h2>Dashboard</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><select id="financialPeriod" title="Período financiero"><option value="day" ${mode==="day"?"selected":""}>Día</option><option value="weekend" ${mode==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${mode==="month"?"selected":""}>Mes</option></select><button class="btn-primary" id="quickExpense">+ Añadir gasto</button></div></div>
+  <div class="panel" style="padding:12px 16px;margin-bottom:16px"><b>Ingresos y gastos · ${period.range.label}</b><div style="font-size:12px;color:var(--dim);margin-top:3px">${period.range.start===period.range.end?period.range.start:period.range.start+" → "+period.range.end}</div></div>
+  <div class="cards">
+    <div class="card"><div class="label">Ingresos del período</div><div class="val">${fmt$(period.sales)}</div><div class="sub">${fmtBs(period.sales)}</div></div>
+    <div class="card"><div class="label">Gastos del período</div><div class="val">${fmt$(period.expenses)}</div><div class="sub">${fmtBs(period.expenses)}</div></div>
+    <div class="card"><div class="label">Ganancia estimada</div><div class="val">${fmt$(period.balance)}</div><div class="sub">${fmtBs(period.balance)}</div></div>
+    <div class="card"><div class="label">Órdenes de hoy</div><div class="val">${todays.length}</div><div class="sub">${completadasHoy} completadas</div></div>
+    <div class="card"><div class="label">Ticket promedio</div><div class="val">${fmt$(ticketPromedio)}</div><div class="sub">por orden</div></div>
+    <div class="card"><div class="label">Órdenes pendientes</div><div class="val">${pendientes}</div><div class="sub">en todo el sistema</div></div>
+    <div class="card"><div class="label">Clientes registrados</div><div class="val">${clientes}</div></div>
+  </div>
+  <div class="row2" style="margin-bottom:24px"><div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Productos más vendidos</div>${top.map(([n,q])=>bar(n,q)).join("")||'<div class="empty" style="padding:16px">Aún no hay ventas registradas</div>'}</div><div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Últimas órdenes</div>${latestOrders.map(o=>`<div class="summary-line"><span>#${o.order_number} — ${o.customers?escapeHtml(o.customers.name):"—"}</span><span>${fmt$(o.total)} · <span class="badge b-${o.status}">${statusLabel(o.status)}</span></span></div>`).join("")||'<div class="empty" style="padding:16px">Aún no hay órdenes</div>'}</div></div>
+  <div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Resumen del período</div><div class="summary-line"><span>Ingresos</span><span>${fmt$(period.sales)}</span></div><div class="summary-line"><span>Gastos</span><span>${fmt$(period.expenses)}</span></div><div class="summary-line total"><span>Ganancia estimada</span><span>${fmt$(period.balance)}</span></div></div>`;
 }
 
 /* ---------- PRODUCTOS ---------- */
@@ -574,16 +395,13 @@ function providerFormHtml(p){
 /* ---------- GASTOS ---------- */
 const EXP_CATS = ["Ingredientes","Delivery","Servicios","Publicidad","Personal","Equipos","Mantenimiento","Empaques","Otros"];
 function gastosView(){
-  let items = cache.expenses.filter(e=>!state.search || e.description.toLowerCase().includes(state.search.toLowerCase()) || (e.providers?.name||"").toLowerCase().includes(state.search.toLowerCase()));
-  const totalMes = cache.expenses.filter(e=>(e.expense_date||"").slice(0,7)===todayCaracas().slice(0,7)).reduce((s,e)=>s+Number(e.amount),0);
-  return `<div class="topbar"><h2>Gastos</h2><button class="btn-primary" id="newExp">+ Nuevo gasto</button></div>
-  <div class="cards" style="margin-bottom:16px"><div class="card"><div class="label">Gastos del mes</div><div class="val">${fmt$(totalMes)}</div></div></div>
-  <div class="toolbar"><input id="pSearch" placeholder="Buscar por descripción o proveedor..." value="${state.search}"></div>
-  <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto Bs</th><th>Tasa</th><th>USD</th><th></th></tr></thead><tbody>  ${items.map(e=>`<tr><td>${e.expense_date}</td><td>${e.category}</td><td>${e.description}</td><td>${e.providers?e.providers.name:"—"}</td><td>Bs. ${Number(e.amount_bs||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td>
-<td>${Number(e.exchange_rate||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td>
-<td>${fmt$(e.amount)}</td>
-    <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("") || '<tr><td colspan="" class="empty">No hay gastos registrados</td></tr>'}
-  </tbody></table></div>`;
+  let items=cache.expenses.filter(e=>!state.search || (e.description||"").toLowerCase().includes(state.search.toLowerCase()) || (e.providers?.name||"").toLowerCase().includes(state.search.toLowerCase()));
+  const period=financialSummary(state.financialPeriod||"day");
+  items=items.filter(e=>inFinancialRange(e.expense_date,period.range));
+  return `<div class="topbar"><h2>Ingresos y gastos</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><select id="financialPeriod"><option value="day" ${state.financialPeriod==="day"?"selected":""}>Día</option><option value="weekend" ${state.financialPeriod==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${state.financialPeriod==="month"?"selected":""}>Mes</option></select><button class="btn-primary" id="newExp">+ Nuevo gasto</button></div></div>
+  <div class="cards" style="margin-bottom:16px"><div class="card"><div class="label">Ingresos</div><div class="val">${fmt$(period.sales)}</div></div><div class="card"><div class="label">Gastos</div><div class="val">${fmt$(period.expenses)}</div></div><div class="card"><div class="label">Balance</div><div class="val">${fmt$(period.balance)}</div></div></div>
+  <div class="toolbar"><input id="pSearch" placeholder="Buscar por descripción o proveedor..." value="${escapeHtml(state.search)}"></div>
+  <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto Bs</th><th>Tasa</th><th>USD</th><th></th></tr></thead><tbody>${items.map(e=>`<tr><td>${e.expense_date}</td><td>${escapeHtml(e.category)}</td><td>${escapeHtml(e.description)}</td><td>${e.providers?escapeHtml(e.providers.name):"—"}</td><td>Bs. ${Number(e.amount_bs||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td><td>${Number(e.exchange_rate||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td><td>${fmt$(e.amount)}</td><td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("")||'<tr><td colspan="8" class="empty">No hay gastos en este período</td></tr>'}</tbody></table></div>`;
 }
 function expenseFormHtml(e){
   e = e || {id:"",expense_date:todayCaracas(),category:EXP_CATS[0],description:"",provider_id:"",amount:"",amount_bs:"",exchange_rate:cache.config.exchange_rate,notes:""};
@@ -1130,9 +948,9 @@ function orderBuilderHtml(){
     const name = (c.name||"").toLowerCase();
     const phone = (c.phone||"").toLowerCase();
     const address = (c.address||"").toLowerCase();
-
+    if(c.id===state.orderCustomer) return false;
     return !search || name.includes(search) || phone.includes(search) || address.includes(search);
-  }).slice(0,20);
+  }).slice(0,8);
 
   const selectedCustomer = customers.find(c=>c.id===state.orderCustomer);
 
@@ -1143,109 +961,12 @@ function orderBuilderHtml(){
 
     <div class="field">
       <label>Cliente</label>
-
-      <input
-        id="ob-cust-search"
-        type="text"
-        placeholder="🔎 Buscar por nombre, teléfono o dirección..."
-        value="${escapeHtml(state.orderCustomerSearch||"")}"
-        autocomplete="off"
-      >
-
-      <input
-        type="hidden"
-        id="ob-cust"
-        value="${state.orderCustomer||""}"
-      >
-
-      ${selectedCustomer ? `
-        <div class="panel" style="margin-top:8px;padding:10px;border:1px solid var(--accent)">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-            <div>
-              <div style="font-weight:600">✓ ${escapeHtml(selectedCustomer.name)}</div>
-              <div style="font-size:12px;color:var(--dim)">
-                ${escapeHtml(selectedCustomer.phone||"Sin teléfono")}
-              </div>
-              ${selectedCustomer.address ? `
-                <div style="font-size:12px;color:var(--dim);margin-top:3px">
-                  ${escapeHtml(selectedCustomer.address)}
-                </div>
-              ` : ""}
-            </div>
-            <button type="button" class="btn-ghost btn-sm" id="clearOrderCust" title="Quitar cliente seleccionado">✕</button>
-          </div>
-        </div>
-      ` : ""}
-
-      <div id="orderCustomerResults" style="margin-top:8px">
-        ${customerResults.length ? customerResults.map(c=>`
-          <button
-            type="button"
-            class="btn-ghost"
-            data-select-order-cust="${c.id}"
-            style="display:block;width:100%;text-align:left;margin-bottom:5px;padding:9px 10px"
-          >
-            <b>${escapeHtml(c.name)}</b>
-            <span style="color:var(--dim);font-size:12px">
-              — ${escapeHtml(c.phone||"Sin teléfono")}
-            </span>
-          </button>
-        `).join("") : `
-          <div style="padding:10px;color:var(--dim);font-size:13px">
-            No encontramos ese cliente.
-          </div>
-        `}
-      </div>
-
-      <button
-        type="button"
-        class="btn-ghost btn-sm"
-        id="quickNewCustomer"
-        style="margin-top:5px"
-      >
-        + Crear cliente rápidamente
-      </button>
-
-      ${state.quickCustomerOpen ? `
-        <div class="panel" style="margin-top:10px;padding:12px">
-          <div style="font-weight:600;margin-bottom:10px">
-            Nuevo cliente
-          </div>
-
-          <div class="field">
-            <label>Nombre</label>
-            <input id="qc-name" placeholder="Nombre del cliente">
-          </div>
-
-          <div class="field">
-            <label>Teléfono</label>
-            <input id="qc-phone" placeholder="0414-1234567">
-          </div>
-
-          <div class="field">
-            <label>Dirección</label>
-            <input id="qc-address" placeholder="Dirección de entrega">
-          </div>
-
-          <div style="display:flex;gap:8px;margin-top:10px">
-            <button
-              type="button"
-              class="btn-ghost btn-sm"
-              id="cancelQuickCustomer"
-            >
-              Cancelar
-            </button>
-
-            <button
-              type="button"
-              class="btn-primary btn-sm"
-              id="saveQuickCustomer"
-            >
-              Guardar cliente
-            </button>
-          </div>
-        </div>
-      ` : ""}
+      <input id="ob-cust-search" type="text" placeholder="🔎 Buscar cliente por nombre, teléfono o dirección..." value="${escapeHtml(state.orderCustomerSearch||"")}" autocomplete="off">
+      <input type="hidden" id="ob-cust" value="${state.orderCustomer||""}">
+      ${selectedCustomer ? `<div class="panel" style="margin-top:8px;padding:10px;border:1px solid var(--accent)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div style="font-weight:600">✓ ${escapeHtml(selectedCustomer.name)}</div><div style="font-size:12px;color:var(--dim)">${escapeHtml(selectedCustomer.phone||"Sin teléfono")}</div>${selectedCustomer.address?`<div style="font-size:12px;color:var(--dim);margin-top:3px">${escapeHtml(selectedCustomer.address)}</div>`:""}</div><button type="button" class="btn-ghost btn-sm" id="clearOrderCust">✕</button></div></div>`:""}
+      <div id="orderCustomerResults" class="panel" style="margin-top:8px;padding:6px 12px;max-height:220px;overflow-y:auto">${customerResults.length?customerResults.map(c=>`<div class="prod-pick" data-select-order-cust="${c.id}" style="cursor:pointer"><span><b>${escapeHtml(c.name)}</b><span style="color:var(--dim);font-size:12px"> · ${escapeHtml(c.phone||"Sin teléfono")}</span>${c.address?`<div style="color:var(--dim);font-size:11px;margin-top:2px">${escapeHtml(c.address)}</div>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:18px">›</span></div>`).join(""):`<div class="empty" style="padding:12px">No encontramos ese cliente.</div>`}</div>
+      <button type="button" class="btn-ghost btn-sm" id="quickNewCustomer" style="margin-top:7px">+ Crear cliente rápidamente</button>
+      ${state.quickCustomerOpen?`<div class="panel" style="margin-top:10px;padding:12px"><div style="font-weight:600;margin-bottom:10px">Nuevo cliente</div><div class="field"><label>Nombre</label><input id="qc-name" placeholder="Nombre del cliente"></div><div class="field"><label>Teléfono</label><input id="qc-phone" placeholder="0414-1234567"></div><div class="field"><label>Dirección</label><input id="qc-address" placeholder="Dirección de entrega"></div><div style="display:flex;gap:8px;margin-top:10px"><button type="button" class="btn-ghost btn-sm" id="cancelQuickCustomer">Cancelar</button><button type="button" class="btn-primary btn-sm" id="saveQuickCustomer">Guardar cliente</button></div></div>`:""}
     </div>
 
     <div class="field">
@@ -1509,16 +1230,7 @@ function wireModal(name){
       const active=document.getElementById("inv-active").value==="true";
       if(!namev){ toast("El nombre es obligatorio", true); throw new Error("__validation"); }
       if(stock<0 || minStock<0 || cost<0 || waste<0 || waste>=100){ toast("Revisa stock, mínimo, costo y merma", true); throw new Error("__validation"); }
-      const {data,error}=await sb.rpc("save_ingredient",{
-        p_id:state.editingInventory?.id||null,
-        p_name:namev,
-        p_unit:unit,
-        p_stock:stock,
-        p_min_stock:minStock,
-        p_cost:cost,
-        p_merma_percent:waste,
-        p_active:active
-      });
+      const {error}=await sb.rpc("save_ingredient",{p_id:state.editingInventory?.id||null,p_name:namev,p_unit:unit,p_stock:stock,p_min_stock:minStock,p_cost:cost,p_merma_percent:waste,p_active:active});
       if(error) throw error;
       await loadInventory(); closeModal(); render(); toast("Ingrediente guardado");
     });
@@ -1529,13 +1241,11 @@ function wireModal(name){
       const qty=parseFloat(document.getElementById("inv-move-qty").value)||0;
       const note=document.getElementById("inv-move-note").value.trim();
       if(qty<=0){ toast("Coloca una cantidad válida", true); throw new Error("__validation"); }
+      const current=Number(state.inventoryMoveItem.stock||0);
       const delta=state.inventoryMoveType==="waste" ? -qty : qty;
-      const {error}=await sb.rpc("adjust_ingredient",{
-        p_ingredient_id:state.inventoryMoveItem.id,
-        p_quantity_delta:delta,
-        p_movement_type:state.inventoryMoveType==="waste"?"merma":"entrada",
-        p_notes:note
-      });
+      const next=current+delta;
+      if(next<0){ toast("La merma no puede superar el stock actual", true); throw new Error("__validation"); }
+      const {error}=await sb.rpc("adjust_ingredient",{p_ingredient_id:state.inventoryMoveItem.id,p_quantity_delta:delta,p_movement_type:state.inventoryMoveType==="waste"?"merma":"entrada",p_notes:note});
       if(error) throw error;
       await loadInventory(); closeModal(); render(); toast(state.inventoryMoveType==="waste"?"Merma registrada":"Stock agregado");
     });
@@ -1698,29 +1408,15 @@ async function openTicketForOrder(o){
 }
 
 function refreshOrderCustomerResults(){
-  const input=document.getElementById("ob-cust-search");
   const results=document.getElementById("orderCustomerResults");
-  if(!input || !results) return;
-
+  if(!results) return;
   const search=(state.orderCustomerSearch||"").toLowerCase().trim();
-  const customers=cache.customers
-    .filter(c=>{
-      if(!search) return true;
-      return (c.name||"").toLowerCase().includes(search)
-        || (c.phone||"").toLowerCase().includes(search)
-        || (c.address||"").toLowerCase().includes(search);
-    })
-    .slice(0,20);
-
-  results.innerHTML=customers.length
-    ? customers.map(c=>`
-      <button type="button" class="btn-ghost" data-select-order-cust="${c.id}" style="display:block;width:100%;text-align:left;margin-bottom:5px;padding:9px 10px">
-        <div><b>${escapeHtml(c.name||"")}</b></div>
-        <div style="font-size:12px;color:var(--dim)">${escapeHtml(c.phone||"Sin teléfono")}</div>
-        <div style="font-size:12px;color:var(--dim)">${escapeHtml(c.address||"Sin dirección")}</div>
-      </button>
-    `).join("")
-    : '<div class="empty" style="padding:12px">No se encontraron clientes.</div>';
+  const customers=cache.customers.filter(c=>{
+    if(c.id===state.orderCustomer) return false;
+    if(!search) return true;
+    return (c.name||"").toLowerCase().includes(search) || (c.phone||"").toLowerCase().includes(search) || (c.address||"").toLowerCase().includes(search);
+  }).slice(0,20);
+  results.innerHTML=customers.length?customers.map(c=>`<div class="prod-pick" data-select-order-cust="${c.id}" style="cursor:pointer"><span><b>${escapeHtml(c.name)}</b><span style="color:var(--dim);font-size:12px"> · ${escapeHtml(c.phone||"Sin teléfono")}</span>${c.address?`<div style="color:var(--dim);font-size:11px;margin-top:2px">${escapeHtml(c.address)}</div>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:18px">›</span></div>`).join(""):`<div class="empty" style="padding:12px">No encontramos ese cliente.</div>`;
 }
 
 /* ---------- EVENTOS GLOBALES ---------- */
@@ -1835,6 +1531,7 @@ document.addEventListener("click", async e=>{
   if(t.dataset.delProv){ if(confirm("¿Eliminar este proveedor?")){ try{ await Api.remove("providers", t.dataset.delProv); await loadProviders(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
   if(t.id==="newExp"){ state.editingExp=null; state.modal="exp"; render(); }
+  if(t.id==="quickExpense"){ state.editingExp=null; state.modal="exp"; render(); }
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
@@ -1856,6 +1553,9 @@ document.addEventListener("click", async e=>{
 });
 
 document.addEventListener("change", async e=>{
+  if(e.target.id==="financialPeriod"){ state.financialPeriod=e.target.value; render(); return; }
+  if(e.target.id==="inventoryLowOnly"){ state.inventoryLowOnly=e.target.checked; render(); return; }
+
 
   /* ---------- CAMBIO DE ESTADO ---------- */
 
