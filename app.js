@@ -103,7 +103,7 @@ async function loadOrders(){
   if(error) throw error; cache.orders = data;
 }
 async function loadOrderItemsAll(){
-  const {data,error} = await sb.from("order_items").select("product_name, quantity, orders(status)");
+  const {data,error} = await sb.from("order_items").select("product_name, quantity, orders(status, order_date)");
   if(error) throw error; cache.orderItemsAll = data;
 }
 async function loadOrdersAndItems(){ await loadOrders(); await loadOrderItemsAll(); }
@@ -129,7 +129,7 @@ function initRealtime(){
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialWeekendDate:todayCaracas(), financialMonth:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialWeekendDate:todayCaracas(), financialMonth:todayCaracas().slice(0,7), financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false };
 
 async function initApp(){
   try{ await loadAll(); initRealtime(); render(); }
@@ -255,19 +255,65 @@ function financialSummary(mode){
   const expenses=cache.expenses.filter(e=>inFinancialRange(e.expense_date,range)).reduce((s,e)=>s+Number(e.amount||0),0);
   return {range,sales,expenses,balance:sales-expenses};
 }
+function financialMonthLabel(month){
+  const [y,m]=month.split("-").map(Number);
+  return new Date(y,m-1,1).toLocaleDateString("es-VE",{month:"long",year:"numeric"});
+}
+function financialDateLabel(dateStr){
+  return new Date(dateStr+"T12:00:00").toLocaleDateString("es-VE",{day:"numeric",month:"long",year:"numeric"});
+}
+function financialCalendarHtml(mode){
+  const selected=mode==="month" ? (state.financialMonth||todayCaracas().slice(0,7)) : (mode==="weekend" ? (state.financialWeekendDate||todayCaracas()) : (state.financialDate||todayCaracas()));
+  const cursor=state.financialCalendarCursor || selected.slice(0,7);
+  if(mode==="month"){
+    const year=Number(cursor.slice(0,4)) || new Date().getFullYear();
+    const months=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    return `<div class="financial-calendar">
+      <div class="cal-head"><button class="btn-ghost btn-sm" data-cal-year="prev">‹</button><b>${year}</b><button class="btn-ghost btn-sm" data-cal-year="next">›</button></div>
+      <div class="cal-month-grid">${months.map((m,i)=>{ const val=year+"-"+String(i+1).padStart(2,"0"); const active=val===selected; return `<button class="cal-month ${active?"active":""}" data-cal-month="${val}">${m}</button>`; }).join("")}</div>
+    </div>`;
+  }
+  const base=cursor+"-01";
+  const d=new Date(base+"T12:00:00");
+  const year=d.getFullYear(), month=d.getMonth();
+  const firstDay=(new Date(year,month,1).getDay()+6)%7;
+  const days=new Date(year,month+1,0).getDate();
+  const prevDays=new Date(year,month,0).getDate();
+  const cells=[];
+  for(let i=0;i<42;i++){
+    const n=i-firstDay+1;
+    let day=n, m=month, y=year, muted=false;
+    if(n<1){ day=prevDays+n; m=month-1; muted=true; }
+    else if(n>days){ day=n-days; m=month+1; muted=true; }
+    const cellDate=new Date(y,m,day);
+    const value=cellDate.toLocaleDateString("en-CA");
+    const active=value===selected;
+    cells.push(`<button class="cal-day ${muted?"muted":""} ${active?"active":""}" data-cal-day="${value}">${day}</button>`);
+  }
+  return `<div class="financial-calendar">
+    <div class="cal-head"><button class="btn-ghost btn-sm" data-cal-month-nav="prev">‹</button><b>${new Date(year,month,1).toLocaleDateString("es-VE",{month:"long",year:"numeric"})}</b><button class="btn-ghost btn-sm" data-cal-month-nav="next">›</button></div>
+    <div class="cal-weekdays"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+    <div class="cal-grid">${cells.join("")}</div>
+  </div>`;
+}
 function financialControlsHtml(){
   const mode=state.financialPeriod||"day";
-  let picker="";
-  if(mode==="day"){
-    picker=`<div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Selecciona el día</label><input id="financialDate" type="date" value="${state.financialDate||todayCaracas()}" style="min-width:150px"></div>`;
-  }else if(mode==="weekend"){
-    const wr=selectedWeekendRange(state.financialWeekendDate||todayCaracas());
-    picker=`<div class="field" style="margin:0;min-width:180px"><label style="font-size:11px;margin-bottom:3px">Elige un día del fin de semana</label><input id="financialWeekendDate" type="date" value="${state.financialWeekendDate||todayCaracas()}" style="min-width:180px"><div style="font-size:11px;color:var(--dim);margin-top:3px">${wr.start} → ${wr.end}</div></div>`;
-  }else{
-    picker=`<div class="field" style="margin:0;min-width:145px"><label style="font-size:11px;margin-bottom:3px">Selecciona el mes</label><input id="financialMonth" type="month" value="${state.financialMonth||todayCaracas().slice(0,7)}" style="min-width:145px"></div>`;
-  }
-  return `<div style="display:flex;gap:8px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap"><div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Ver por</label><select id="financialPeriod"><option value="day" ${mode==="day"?"selected":""}>Día</option><option value="weekend" ${mode==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${mode==="month"?"selected":""}>Mes</option></select></div>${picker}</div>`;
+  const selected=mode==="month" ? (state.financialMonth||todayCaracas().slice(0,7)) : (mode==="weekend" ? (state.financialWeekendDate||todayCaracas()) : (state.financialDate||todayCaracas()));
+  const label=mode==="month" ? financialMonthLabel(selected) : financialDateLabel(selected);
+  const weekendInfo=mode==="weekend" ? (()=>{const r=selectedWeekendRange(selected); return `<div style="font-size:11px;color:var(--dim);margin-top:3px">${r.start} → ${r.end}</div>`;})() : "";
+  const calendar=state.financialCalendarOpen ? financialCalendarHtml(mode) : "";
+  return `<div style="display:flex;gap:8px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap">
+    <div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Ver por</label><select id="financialPeriod"><option value="day" ${mode==="day"?"selected":""}>Día</option><option value="weekend" ${mode==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${mode==="month"?"selected":""}>Mes</option></select></div>
+    <div class="financial-picker-wrap">
+      <label style="font-size:11px;margin-bottom:3px;display:block">${mode==="month"?"Selecciona el mes":mode==="weekend"?"Elige un día del fin de semana":"Selecciona el día"}</label>
+      <button type="button" class="financial-picker-btn" id="financialCalendarToggle">📅 ${label}</button>
+      ${weekendInfo}${calendar}
+    </div>
+  </div>`;
 }
+
+const FINANCIAL_CALENDAR_CSS = `<style>
+.financial-picker-wrap{position:relative;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:1000;right:0;top:100%;margin-top:6px;width:290px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.35)}.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.cal-weekdays,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cal-weekdays{font-size:11px;color:var(--dim);text-align:center;margin-bottom:5px}.cal-day,.cal-month{border:0;background:transparent;color:var(--text,#fff);border-radius:7px;cursor:pointer}.cal-day{height:32px}.cal-day:hover,.cal-month:hover{background:var(--bg3)}.cal-day.muted{color:var(--dim);opacity:.45}.cal-day.active,.cal-month.active{background:var(--accent);color:#111;font-weight:700}.cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.cal-month{padding:10px 5px;font-size:12px}</style>`;
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
@@ -305,7 +351,7 @@ function dashboardView(){
   const productsButton=ranked.length>5?`<button class="btn-ghost btn-sm" id="toggleTopProducts">${state.showAllTopProducts?"Ocultar":"Expandir"}</button>`:"";
   const expandedProducts=state.showAllTopProducts?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${allProductsRows||'<div class="empty" style="padding:16px">No hay productos registrados</div>'}</div>`:"";
 
-  return `<div class="topbar"><h2>Dashboard</h2><div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="quickExpense">+ Añadir gasto</button></div></div>
+  return FINANCIAL_CALENDAR_CSS+`<div class="topbar"><h2>Dashboard</h2><div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="quickExpense">+ Añadir gasto</button></div></div>
   <div class="panel" style="padding:12px 16px;margin-bottom:16px"><b>Ingresos y gastos · ${period.range.label}</b><div style="font-size:12px;color:var(--dim);margin-top:3px">${formatFinancialRange(period.range)}</div></div>
   <div class="cards">
     <div class="card"><div class="label">Ingresos del período</div><div class="val">${fmt$(ventasPeriodo)}</div><div class="sub">${fmtBs(ventasPeriodo)}</div></div>
@@ -442,7 +488,7 @@ function gastosView(){
   let items=cache.expenses.filter(e=>!state.search || (e.description||"").toLowerCase().includes(state.search.toLowerCase()) || (e.providers?.name||"").toLowerCase().includes(state.search.toLowerCase()));
   const period=financialSummary(state.financialPeriod||"day");
   items=items.filter(e=>inFinancialRange(e.expense_date,period.range));
-  return `<div class="topbar"><h2>Ingresos y gastos</h2><div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="newExp">+ Nuevo gasto</button></div></div>
+  return FINANCIAL_CALENDAR_CSS+`<div class="topbar"><h2>Ingresos y gastos</h2><div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="newExp">+ Nuevo gasto</button></div></div>
   <div class="cards" style="margin-bottom:16px"><div class="card"><div class="label">Ingresos</div><div class="val">${fmt$(period.sales)}</div></div><div class="card"><div class="label">Gastos</div><div class="val">${fmt$(period.expenses)}</div></div><div class="card"><div class="label">Balance</div><div class="val">${fmt$(period.balance)}</div></div></div>
   <div class="toolbar"><input id="pSearch" placeholder="Buscar por descripción o proveedor..." value="${escapeHtml(state.search)}"></div>
   <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto Bs</th><th>Tasa</th><th>USD</th><th></th></tr></thead><tbody>${items.map(e=>`<tr><td>${e.expense_date}</td><td>${escapeHtml(e.category)}</td><td>${escapeHtml(e.description)}</td><td>${e.providers?escapeHtml(e.providers.name):"—"}</td><td>Bs. ${Number(e.amount_bs||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td><td>${Number(e.exchange_rate||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td><td>${fmt$(e.amount)}</td><td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("")||'<tr><td colspan="8" class="empty">No hay gastos en este período</td></tr>'}</tbody></table></div>`;
@@ -1576,6 +1622,11 @@ document.addEventListener("click", async e=>{
 
   if(t.id==="newExp"){ state.editingExp=null; state.modal="exp"; render(); }
   if(t.id==="quickExpense"){ state.editingExp=null; state.modal="exp"; render(); }
+  if(t.id==="financialCalendarToggle"){ state.financialCalendarOpen=!state.financialCalendarOpen; const selected=state.financialPeriod==="month"?(state.financialMonth||todayCaracas().slice(0,7)):(state.financialPeriod==="weekend"?(state.financialWeekendDate||todayCaracas()):(state.financialDate||todayCaracas())); state.financialCalendarCursor=selected.slice(0,7); render(); return; }
+  if(t.dataset.calMonthNav){ const cursor=state.financialCalendarCursor||todayCaracas().slice(0,7); const d=new Date(cursor+"-01T12:00:00"); d.setMonth(d.getMonth()+(t.dataset.calMonthNav==="next"?1:-1)); state.financialCalendarCursor=d.toLocaleDateString("en-CA").slice(0,7); render(); return; }
+  if(t.dataset.calDay){ const val=t.dataset.calDay; if(state.financialPeriod==="weekend") state.financialWeekendDate=val; else state.financialDate=val; state.financialCalendarOpen=false; state.financialCalendarCursor=val.slice(0,7); state.showAllTopProducts=false; render(); return; }
+  if(t.dataset.calYear){ const cursor=state.financialCalendarCursor||todayCaracas().slice(0,7); const year=Number(cursor.slice(0,4))+(t.dataset.calYear==="next"?1:-1); state.financialCalendarCursor=year+"-01"; render(); return; }
+  if(t.dataset.calMonth){ state.financialMonth=t.dataset.calMonth; state.financialCalendarOpen=false; state.financialCalendarCursor=t.dataset.calMonth; state.showAllTopProducts=false; render(); return; }
   if(t.id==="toggleTopProducts"){ state.showAllTopProducts=!state.showAllTopProducts; render(); return; }
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
