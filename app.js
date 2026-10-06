@@ -129,7 +129,7 @@ function initRealtime(){
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialWeekendDate:todayCaracas(), financialMonth:todayCaracas().slice(0,7), financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialRangeStart:todayCaracas(), financialRangeEnd:todayCaracas(), financialRangeTarget:"start", financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), orderCalendarOpen:false, orderCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false };
 
 async function initApp(){
   try{ await loadAll(); initRealtime(); render(); }
@@ -221,22 +221,16 @@ function monthEndDate(monthStr){
   d.setMonth(d.getMonth()+1,0);
   return d.toLocaleDateString("en-CA",{timeZone:TZ});
 }
-function selectedWeekendRange(dateStr){
-  const base=dateStr || todayCaracas();
-  const d=new Date(base+"T12:00:00");
-  const day=d.getDay();
-  const saturday=shiftDateStr(base,day===0?-1:6-day);
-  const sunday=shiftDateStr(saturday,1);
-  return {start:saturday,end:sunday};
-}
 function financialRange(mode){
   if(mode==="month"){
     const month=state.financialMonth || todayCaracas().slice(0,7);
     return {start:month+"-01",end:monthEndDate(month),label:"Mes seleccionado"};
   }
-  if(mode==="weekend"){
-    const selected=selectedWeekendRange(state.financialWeekendDate || todayCaracas());
-    return {...selected,label:"Fin de semana seleccionado"};
+  if(mode==="range"){
+    let start=state.financialRangeStart || todayCaracas();
+    let end=state.financialRangeEnd || start;
+    if(start>end){ const tmp=start; start=end; end=tmp; }
+    return {start,end,label:"Rango seleccionado"};
   }
   const selected=state.financialDate || todayCaracas();
   return {start:selected,end:selected,label:"Día seleccionado"};
@@ -262,8 +256,11 @@ function financialMonthLabel(month){
 function financialDateLabel(dateStr){
   return new Date(dateStr+"T12:00:00").toLocaleDateString("es-VE",{day:"numeric",month:"long",year:"numeric"});
 }
-function financialCalendarHtml(mode){
-  const selected=mode==="month" ? (state.financialMonth||todayCaracas().slice(0,7)) : (mode==="weekend" ? (state.financialWeekendDate||todayCaracas()) : (state.financialDate||todayCaracas()));
+function financialCalendarHtml(mode, target="day"){
+  let selected;
+  if(mode==="month") selected=state.financialMonth || todayCaracas().slice(0,7);
+  else if(mode==="range") selected=(target==="end" ? (state.financialRangeEnd || state.financialRangeStart || todayCaracas()) : (state.financialRangeStart || todayCaracas()));
+  else selected=state.financialDate || todayCaracas();
   const cursor=state.financialCalendarCursor || selected.slice(0,7);
   if(mode==="month"){
     const year=Number(cursor.slice(0,4)) || new Date().getFullYear();
@@ -279,6 +276,7 @@ function financialCalendarHtml(mode){
   const firstDay=(new Date(year,month,1).getDay()+6)%7;
   const days=new Date(year,month+1,0).getDate();
   const prevDays=new Date(year,month,0).getDate();
+  const rangeStart=state.financialRangeStart||"", rangeEnd=state.financialRangeEnd||"";
   const cells=[];
   for(let i=0;i<42;i++){
     const n=i-firstDay+1;
@@ -287,8 +285,9 @@ function financialCalendarHtml(mode){
     else if(n>days){ day=n-days; m=month+1; muted=true; }
     const cellDate=new Date(y,m,day);
     const value=cellDate.toLocaleDateString("en-CA");
-    const active=value===selected;
-    cells.push(`<button class="cal-day ${muted?"muted":""} ${active?"active":""}" data-cal-day="${value}">${day}</button>`);
+    const active=mode==="range" ? (value===rangeStart || value===rangeEnd) : value===selected;
+    const between=mode==="range" && rangeStart && rangeEnd && value>rangeStart && value<rangeEnd;
+    cells.push(`<button class="cal-day ${muted?"muted":""} ${active?"active":""} ${between?"between":""}" data-cal-day="${value}" data-cal-target="${target}">${day}</button>`);
   }
   return `<div class="financial-calendar">
     <div class="cal-head"><button class="btn-ghost btn-sm" data-cal-month-nav="prev">‹</button><b>${new Date(year,month,1).toLocaleDateString("es-VE",{month:"long",year:"numeric"})}</b><button class="btn-ghost btn-sm" data-cal-month-nav="next">›</button></div>
@@ -296,24 +295,53 @@ function financialCalendarHtml(mode){
     <div class="cal-grid">${cells.join("")}</div>
   </div>`;
 }
+function orderCalendarHtml(){
+  const selected=state.orderDateFilter || todayCaracas();
+  const cursor=state.orderCalendarCursor || selected.slice(0,7);
+  const base=cursor+"-01";
+  const d=new Date(base+"T12:00:00");
+  const year=d.getFullYear(), month=d.getMonth();
+  const firstDay=(new Date(year,month,1).getDay()+6)%7;
+  const days=new Date(year,month+1,0).getDate();
+  const prevDays=new Date(year,month,0).getDate();
+  const cells=[];
+  for(let i=0;i<42;i++){
+    const n=i-firstDay+1;
+    let day=n, m=month, y=year, muted=false;
+    if(n<1){ day=prevDays+n; m=month-1; muted=true; }
+    else if(n>days){ day=n-days; m=month+1; muted=true; }
+    const value=new Date(y,m,day).toLocaleDateString("en-CA");
+    cells.push(`<button class="cal-day ${muted?"muted":""} ${value===selected?"active":""}" data-order-cal-day="${value}">${day}</button>`);
+  }
+  return `<div class="financial-calendar order-calendar">
+    <div class="cal-head"><button class="btn-ghost btn-sm" data-order-cal-nav="prev">‹</button><b>${new Date(year,month,1).toLocaleDateString("es-VE",{month:"long",year:"numeric"})}</b><button class="btn-ghost btn-sm" data-order-cal-nav="next">›</button></div>
+    <div class="cal-weekdays"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+    <div class="cal-grid">${cells.join("")}</div>
+    <button type="button" class="btn-ghost btn-sm" style="width:100%;margin-top:8px" data-order-cal-clear>Quitar fecha</button>
+  </div>`;
+}
 function financialControlsHtml(){
   const mode=state.financialPeriod||"day";
-  const selected=mode==="month" ? (state.financialMonth||todayCaracas().slice(0,7)) : (mode==="weekend" ? (state.financialWeekendDate||todayCaracas()) : (state.financialDate||todayCaracas()));
+  const calendar=state.financialCalendarOpen ? financialCalendarHtml(mode, state.financialRangeTarget||"start") : "";
+  if(mode==="range"){
+    const start=state.financialRangeStart||todayCaracas(), end=state.financialRangeEnd||"";
+    const startLabel=financialDateLabel(start), endLabel=end?financialDateLabel(end):"Selecciona hasta qué día";
+    return `<div style="display:flex;gap:8px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap">
+      <div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Ver por</label><select id="financialPeriod"><option value="day">Día</option><option value="range" selected>Rango</option><option value="month">Mes</option></select></div>
+      <div class="financial-picker-wrap"><label style="font-size:11px;margin-bottom:3px;display:block">Desde</label><button type="button" class="financial-picker-btn" data-financial-range-open="start">📅 ${startLabel}</button>${state.financialCalendarOpen&&state.financialRangeTarget==="start"?calendar:""}</div>
+      <div class="financial-picker-wrap"><label style="font-size:11px;margin-bottom:3px;display:block">Hasta</label><button type="button" class="financial-picker-btn" data-financial-range-open="end">📅 ${endLabel}</button>${state.financialCalendarOpen&&state.financialRangeTarget==="end"?calendar:""}</div>
+    </div>`;
+  }
+  const selected=mode==="month" ? (state.financialMonth||todayCaracas().slice(0,7)) : (state.financialDate||todayCaracas());
   const label=mode==="month" ? financialMonthLabel(selected) : financialDateLabel(selected);
-  const weekendInfo=mode==="weekend" ? (()=>{const r=selectedWeekendRange(selected); return `<div style="font-size:11px;color:var(--dim);margin-top:3px">${r.start} → ${r.end}</div>`;})() : "";
-  const calendar=state.financialCalendarOpen ? financialCalendarHtml(mode) : "";
   return `<div style="display:flex;gap:8px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap">
-    <div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Ver por</label><select id="financialPeriod"><option value="day" ${mode==="day"?"selected":""}>Día</option><option value="weekend" ${mode==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${mode==="month"?"selected":""}>Mes</option></select></div>
-    <div class="financial-picker-wrap">
-      <label style="font-size:11px;margin-bottom:3px;display:block">${mode==="month"?"Selecciona el mes":mode==="weekend"?"Elige un día del fin de semana":"Selecciona el día"}</label>
-      <button type="button" class="financial-picker-btn" id="financialCalendarToggle">📅 ${label}</button>
-      ${weekendInfo}${calendar}
-    </div>
+    <div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Ver por</label><select id="financialPeriod"><option value="day" ${mode==="day"?"selected":""}>Día</option><option value="range">Rango</option><option value="month" ${mode==="month"?"selected":""}>Mes</option></select></div>
+    <div class="financial-picker-wrap"><label style="font-size:11px;margin-bottom:3px;display:block">${mode==="month"?"Selecciona el mes":"Selecciona el día"}</label><button type="button" class="financial-picker-btn" id="financialCalendarToggle">📅 ${label}</button>${calendar}</div>
   </div>`;
 }
 
 const FINANCIAL_CALENDAR_CSS = `<style>
-.financial-picker-wrap{position:relative;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:1000;right:0;top:100%;margin-top:6px;width:290px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.35)}.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.cal-weekdays,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cal-weekdays{font-size:11px;color:var(--dim);text-align:center;margin-bottom:5px}.cal-day,.cal-month{border:0;background:transparent;color:var(--text,#fff);border-radius:7px;cursor:pointer}.cal-day{height:32px}.cal-day:hover,.cal-month:hover{background:var(--bg3)}.cal-day.muted{color:var(--dim);opacity:.45}.cal-day.active,.cal-month.active{background:var(--accent);color:#111;font-weight:700}.cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.cal-month{padding:10px 5px;font-size:12px}</style>`;
+.financial-picker-wrap{position:relative;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:1000;right:0;top:100%;margin-top:6px;width:290px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.35)}.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.cal-weekdays,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cal-weekdays{font-size:11px;color:var(--dim);text-align:center;margin-bottom:5px}.cal-day,.cal-month{border:0;background:transparent;color:var(--text,#fff);border-radius:7px;cursor:pointer}.cal-day{height:32px}.cal-day:hover,.cal-month:hover{background:var(--bg3)}.cal-day.muted{color:var(--dim);opacity:.45}.cal-day.active,.cal-month.active{background:var(--accent);color:#111;font-weight:700}.cal-day.between{background:var(--bg3);color:var(--text,#fff)}.cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.cal-month{padding:10px 5px;font-size:12px}</style>`;
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
@@ -636,12 +664,10 @@ function ordenesView(){
       >
 
 
-      <input
-        id="orderDateFilter"
-        type="date"
-        value="${selectedDate}"
-        title="Filtrar por fecha"
-      >
+      <div class="financial-picker-wrap order-date-picker">
+        <button type="button" class="financial-picker-btn" id="orderCalendarToggle">📅 ${selectedDate ? financialDateLabel(selectedDate) : "Filtrar por fecha"}</button>
+        ${state.orderCalendarOpen ? orderCalendarHtml() : ""}
+      </div>
 
 
       <select
@@ -1596,6 +1622,7 @@ document.addEventListener("click", async e=>{
     state.search="";
     state.filterStatus="";
     state.orderDateFilter="";
+    state.orderCalendarOpen=false;
 
     render();
 
@@ -1622,11 +1649,50 @@ document.addEventListener("click", async e=>{
 
   if(t.id==="newExp"){ state.editingExp=null; state.modal="exp"; render(); }
   if(t.id==="quickExpense"){ state.editingExp=null; state.modal="exp"; render(); }
-  if(t.id==="financialCalendarToggle"){ state.financialCalendarOpen=!state.financialCalendarOpen; const selected=state.financialPeriod==="month"?(state.financialMonth||todayCaracas().slice(0,7)):(state.financialPeriod==="weekend"?(state.financialWeekendDate||todayCaracas()):(state.financialDate||todayCaracas())); state.financialCalendarCursor=selected.slice(0,7); render(); return; }
+  if(t.id==="financialCalendarToggle"){
+    state.financialCalendarOpen=!state.financialCalendarOpen;
+    const selected=state.financialPeriod==="month"?(state.financialMonth||todayCaracas().slice(0,7)):(state.financialDate||todayCaracas());
+    state.financialCalendarCursor=selected.slice(0,7);
+    render(); return;
+  }
+  if(t.dataset.financialRangeOpen){
+    state.financialRangeTarget=t.dataset.financialRangeOpen;
+    const selected=state.financialRangeTarget==="end"?(state.financialRangeEnd||state.financialRangeStart||todayCaracas()):(state.financialRangeStart||todayCaracas());
+    state.financialCalendarCursor=selected.slice(0,7);
+    state.financialCalendarOpen=true;
+    render(); return;
+  }
   if(t.dataset.calMonthNav){ const cursor=state.financialCalendarCursor||todayCaracas().slice(0,7); const d=new Date(cursor+"-01T12:00:00"); d.setMonth(d.getMonth()+(t.dataset.calMonthNav==="next"?1:-1)); state.financialCalendarCursor=d.toLocaleDateString("en-CA").slice(0,7); render(); return; }
-  if(t.dataset.calDay){ const val=t.dataset.calDay; if(state.financialPeriod==="weekend") state.financialWeekendDate=val; else state.financialDate=val; state.financialCalendarOpen=false; state.financialCalendarCursor=val.slice(0,7); state.showAllTopProducts=false; render(); return; }
+  if(t.dataset.calDay){
+    const val=t.dataset.calDay;
+    if(state.financialPeriod==="range"){
+      const target=t.dataset.calTarget||state.financialRangeTarget||"start";
+      if(target==="start"){
+        state.financialRangeStart=val;
+        if(state.financialRangeEnd && state.financialRangeEnd<val) state.financialRangeEnd=val;
+        state.financialRangeTarget="end";
+        state.financialCalendarCursor=val.slice(0,7);
+        state.financialCalendarOpen=true;
+      }else{
+        state.financialRangeEnd=val;
+        if(state.financialRangeEnd<state.financialRangeStart){ const tmp=state.financialRangeStart; state.financialRangeStart=val; state.financialRangeEnd=tmp; }
+        state.financialCalendarOpen=false;
+      }
+    }else{
+      state.financialDate=val; state.financialCalendarOpen=false; state.financialCalendarCursor=val.slice(0,7);
+    }
+    state.showAllTopProducts=false; render(); return;
+  }
   if(t.dataset.calYear){ const cursor=state.financialCalendarCursor||todayCaracas().slice(0,7); const year=Number(cursor.slice(0,4))+(t.dataset.calYear==="next"?1:-1); state.financialCalendarCursor=year+"-01"; render(); return; }
   if(t.dataset.calMonth){ state.financialMonth=t.dataset.calMonth; state.financialCalendarOpen=false; state.financialCalendarCursor=t.dataset.calMonth; state.showAllTopProducts=false; render(); return; }
+  if(t.id==="orderCalendarToggle"){
+    state.orderCalendarOpen=!state.orderCalendarOpen;
+    const selected=state.orderDateFilter||todayCaracas(); state.orderCalendarCursor=selected.slice(0,7);
+    render(); return;
+  }
+  if(t.dataset.orderCalNav){ const cursor=state.orderCalendarCursor||todayCaracas().slice(0,7); const d=new Date(cursor+"-01T12:00:00"); d.setMonth(d.getMonth()+(t.dataset.orderCalNav==="next"?1:-1)); state.orderCalendarCursor=d.toLocaleDateString("en-CA").slice(0,7); render(); return; }
+  if(t.dataset.orderCalDay){ state.orderDateFilter=t.dataset.orderCalDay; state.orderCalendarOpen=false; state.orderCalendarCursor=t.dataset.orderCalDay.slice(0,7); render(); return; }
+  if(t.dataset.orderCalClear){ state.orderDateFilter=""; state.orderCalendarOpen=false; render(); return; }
   if(t.id==="toggleTopProducts"){ state.showAllTopProducts=!state.showAllTopProducts; render(); return; }
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
@@ -1651,12 +1717,18 @@ document.addEventListener("click", async e=>{
 document.addEventListener("change", async e=>{
   if(e.target.id==="financialPeriod"){
     state.financialPeriod=e.target.value;
+    if(state.financialPeriod==="range"){
+      const base=state.financialDate||todayCaracas();
+      state.financialRangeStart=state.financialRangeStart||base;
+      state.financialRangeEnd=state.financialRangeEnd||base;
+      state.financialRangeTarget="start";
+    }
+    state.financialCalendarOpen=false;
     state.showAllTopProducts=false;
     render();
     return;
   }
   if(e.target.id==="financialDate"){ state.financialDate=e.target.value || todayCaracas(); render(); return; }
-  if(e.target.id==="financialWeekendDate"){ state.financialWeekendDate=e.target.value || todayCaracas(); render(); return; }
   if(e.target.id==="financialMonth"){ state.financialMonth=e.target.value || todayCaracas().slice(0,7); render(); return; }
   if(e.target.id==="inventoryLowOnly"){ state.inventoryLowOnly=e.target.checked; render(); return; }
 
