@@ -129,7 +129,7 @@ function initRealtime(){
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", inventorySearch:"", inventoryLowOnly:false };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialWeekendDate:todayCaracas(), financialMonth:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false };
 
 async function initApp(){
   try{ await loadAll(); initRealtime(); render(); }
@@ -216,20 +216,34 @@ function shiftDateStr(dateStr, days){
   d.setDate(d.getDate()+days);
   return d.toLocaleDateString("en-CA",{timeZone:TZ});
 }
+function monthEndDate(monthStr){
+  const d=new Date(monthStr+"-01T12:00:00");
+  d.setMonth(d.getMonth()+1,0);
+  return d.toLocaleDateString("en-CA",{timeZone:TZ});
+}
+function selectedWeekendRange(dateStr){
+  const base=dateStr || todayCaracas();
+  const d=new Date(base+"T12:00:00");
+  const day=d.getDay();
+  const saturday=shiftDateStr(base,day===0?-1:6-day);
+  const sunday=shiftDateStr(saturday,1);
+  return {start:saturday,end:sunday};
+}
 function financialRange(mode){
-  const today=todayCaracas();
   if(mode==="month"){
-    const start=today.slice(0,7)+"-01";
-    return {start,end:today,label:"Este mes"};
+    const month=state.financialMonth || todayCaracas().slice(0,7);
+    return {start:month+"-01",end:monthEndDate(month),label:"Mes seleccionado"};
   }
   if(mode==="weekend"){
-    const d=new Date(today+"T12:00:00");
-    const day=d.getDay();
-    const saturday=shiftDateStr(today,day===0?-1:6-day);
-    const sunday=shiftDateStr(saturday,1);
-    return {start:saturday,end:sunday,label:"Fin de semana"};
+    const selected=selectedWeekendRange(state.financialWeekendDate || todayCaracas());
+    return {...selected,label:"Fin de semana seleccionado"};
   }
-  return {start:today,end:today,label:"Hoy"};
+  const selected=state.financialDate || todayCaracas();
+  return {start:selected,end:selected,label:"Día seleccionado"};
+}
+function formatFinancialRange(range){
+  if(range.start===range.end) return range.start;
+  return range.start+" → "+range.end;
 }
 function inFinancialRange(dateValue,range){
   const d=typeof dateValue==="string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue) ? dateValue : dateCaracas(dateValue);
@@ -241,38 +255,68 @@ function financialSummary(mode){
   const expenses=cache.expenses.filter(e=>inFinancialRange(e.expense_date,range)).reduce((s,e)=>s+Number(e.amount||0),0);
   return {range,sales,expenses,balance:sales-expenses};
 }
+function financialControlsHtml(){
+  const mode=state.financialPeriod||"day";
+  let picker="";
+  if(mode==="day"){
+    picker=`<div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Selecciona el día</label><input id="financialDate" type="date" value="${state.financialDate||todayCaracas()}" style="min-width:150px"></div>`;
+  }else if(mode==="weekend"){
+    const wr=selectedWeekendRange(state.financialWeekendDate||todayCaracas());
+    picker=`<div class="field" style="margin:0;min-width:180px"><label style="font-size:11px;margin-bottom:3px">Elige un día del fin de semana</label><input id="financialWeekendDate" type="date" value="${state.financialWeekendDate||todayCaracas()}" style="min-width:180px"><div style="font-size:11px;color:var(--dim);margin-top:3px">${wr.start} → ${wr.end}</div></div>`;
+  }else{
+    picker=`<div class="field" style="margin:0;min-width:145px"><label style="font-size:11px;margin-bottom:3px">Selecciona el mes</label><input id="financialMonth" type="month" value="${state.financialMonth||todayCaracas().slice(0,7)}" style="min-width:145px"></div>`;
+  }
+  return `<div style="display:flex;gap:8px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap"><div class="field" style="margin:0;min-width:150px"><label style="font-size:11px;margin-bottom:3px">Ver por</label><select id="financialPeriod"><option value="day" ${mode==="day"?"selected":""}>Día</option><option value="weekend" ${mode==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${mode==="month"?"selected":""}>Mes</option></select></div>${picker}</div>`;
+}
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
   const orders=cache.orders;
   const period=financialSummary(state.financialPeriod||"day");
-  const todays=orders.filter(o=>dateCaracas(o.order_date)===todayCaracas() && o.status!=="cancelada");
-  const ventasHoy=todays.reduce((s,o)=>s+Number(o.total||0),0);
-  const gastosHoy=cache.expenses.filter(e=>e.expense_date===todayCaracas()).reduce((s,e)=>s+Number(e.amount||0),0);
+  const range=period.range;
+  const periodOrders=orders.filter(o=>o.status!=="cancelada" && inFinancialRange(o.order_date,range));
+  const todays=periodOrders;
+  const ventasPeriodo=period.sales;
+  const gastosPeriodo=period.expenses;
   const pendientes=orders.filter(o=>["pendiente","preparacion","lista","delivery"].includes(o.status)).length;
-  const completadasHoy=todays.filter(o=>o.status==="completada").length;
-  const ticketPromedio=todays.length?ventasHoy/todays.length:0;
+  const completadasPeriodo=periodOrders.filter(o=>o.status==="completada").length;
+  const ticketPromedio=periodOrders.length?ventasPeriodo/periodOrders.length:0;
   const clientes=cache.customers.length;
+
   const sales={};
-  (cache.orderItemsAll||[]).forEach(it=>{ if(it.orders && it.orders.status!=="cancelada") sales[it.product_name]=(sales[it.product_name]||0)+Number(it.quantity||0); });
-  const ranked=Object.entries(sales).sort((a,b)=>b[1]-a[1]);
+  (cache.orderItemsAll||[]).forEach(it=>{
+    const order=it.orders;
+    if(order && order.status!=="cancelada" && inFinancialRange(order.order_date,range)){
+      const name=it.product_name||"Sin nombre";
+      sales[name]=(sales[name]||0)+Number(it.quantity||0);
+    }
+  });
+
+  /* Incluimos todos los platillos actuales, incluso los que vendieron 0 en el período. */
+  const productNames=new Set(cache.products.map(p=>p.name).filter(Boolean));
+  Object.keys(sales).forEach(name=>productNames.add(name));
+  const ranked=Array.from(productNames).map(name=>[name,Number(sales[name]||0)]).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0],"es"));
   const top=ranked.slice(0,5);
-  const maxQty=ranked.length?ranked[0][1]:1;
-  const bar=(name,qty)=>`<div class="summary-line"><span>${escapeHtml(name)}</span><span style="display:flex;align-items:center;gap:8px"><span style="background:var(--accent);height:6px;width:${Math.max(6,Math.round((qty/maxQty)*100))}px;border-radius:3px;display:inline-block"></span>${qty}</span></div>`;
-  const latestOrders=orders.slice(0,5);
+  const maxQty=ranked.length?Math.max(ranked[0][1],1):1;
+  const bar=(name,qty)=>`<div class="summary-line"><span>${escapeHtml(name)}</span><span style="display:flex;align-items:center;gap:8px"><span style="background:var(--accent);height:6px;width:${Math.max(6,Math.round((qty/maxQty)*100))}px;border-radius:3px;display:inline-block"></span><b>${qty}</b></span></div>`;
+  const allProductsRows=ranked.map(([name,qty],i)=>`<div class="summary-line"><span><span style="color:var(--dim);display:inline-block;width:28px">#${i+1}</span>${escapeHtml(name)}</span><b>${qty} vendido${qty===1?"":"s"}</b></div>`).join("");
+  const latestOrders=periodOrders.slice(0,5);
   const mode=state.financialPeriod||"day";
-  return `<div class="topbar"><h2>Dashboard</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><select id="financialPeriod" title="Período financiero"><option value="day" ${mode==="day"?"selected":""}>Día</option><option value="weekend" ${mode==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${mode==="month"?"selected":""}>Mes</option></select><button class="btn-primary" id="quickExpense">+ Añadir gasto</button></div></div>
-  <div class="panel" style="padding:12px 16px;margin-bottom:16px"><b>Ingresos y gastos · ${period.range.label}</b><div style="font-size:12px;color:var(--dim);margin-top:3px">${period.range.start===period.range.end?period.range.start:period.range.start+" → "+period.range.end}</div></div>
+  const productsButton=ranked.length>5?`<button class="btn-ghost btn-sm" id="toggleTopProducts">${state.showAllTopProducts?"Ocultar":"Expandir"}</button>`:"";
+  const expandedProducts=state.showAllTopProducts?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${allProductsRows||'<div class="empty" style="padding:16px">No hay productos registrados</div>'}</div>`:"";
+
+  return `<div class="topbar"><h2>Dashboard</h2><div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="quickExpense">+ Añadir gasto</button></div></div>
+  <div class="panel" style="padding:12px 16px;margin-bottom:16px"><b>Ingresos y gastos · ${period.range.label}</b><div style="font-size:12px;color:var(--dim);margin-top:3px">${formatFinancialRange(period.range)}</div></div>
   <div class="cards">
-    <div class="card"><div class="label">Ingresos del período</div><div class="val">${fmt$(period.sales)}</div><div class="sub">${fmtBs(period.sales)}</div></div>
-    <div class="card"><div class="label">Gastos del período</div><div class="val">${fmt$(period.expenses)}</div><div class="sub">${fmtBs(period.expenses)}</div></div>
+    <div class="card"><div class="label">Ingresos del período</div><div class="val">${fmt$(ventasPeriodo)}</div><div class="sub">${fmtBs(ventasPeriodo)}</div></div>
+    <div class="card"><div class="label">Gastos del período</div><div class="val">${fmt$(gastosPeriodo)}</div><div class="sub">${fmtBs(gastosPeriodo)}</div></div>
     <div class="card"><div class="label">Ganancia estimada</div><div class="val">${fmt$(period.balance)}</div><div class="sub">${fmtBs(period.balance)}</div></div>
-    <div class="card"><div class="label">Órdenes de hoy</div><div class="val">${todays.length}</div><div class="sub">${completadasHoy} completadas</div></div>
+    <div class="card"><div class="label">Órdenes del período</div><div class="val">${periodOrders.length}</div><div class="sub">${completadasPeriodo} completadas</div></div>
     <div class="card"><div class="label">Ticket promedio</div><div class="val">${fmt$(ticketPromedio)}</div><div class="sub">por orden</div></div>
     <div class="card"><div class="label">Órdenes pendientes</div><div class="val">${pendientes}</div><div class="sub">en todo el sistema</div></div>
     <div class="card"><div class="label">Clientes registrados</div><div class="val">${clientes}</div></div>
   </div>
-  <div class="row2" style="margin-bottom:24px"><div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Productos más vendidos</div>${top.map(([n,q])=>bar(n,q)).join("")||'<div class="empty" style="padding:16px">Aún no hay ventas registradas</div>'}</div><div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Últimas órdenes</div>${latestOrders.map(o=>`<div class="summary-line"><span>#${o.order_number} — ${o.customers?escapeHtml(o.customers.name):"—"}</span><span>${fmt$(o.total)} · <span class="badge b-${o.status}">${statusLabel(o.status)}</span></span></div>`).join("")||'<div class="empty" style="padding:16px">Aún no hay órdenes</div>'}</div></div>
+  <div class="row2" style="margin-bottom:24px"><div class="panel" style="padding:18px"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--dim);font-size:14px;margin-bottom:8px"><span>Productos más vendidos</span>${productsButton}</div>${top.map(([n,q])=>bar(n,q)).join("")||'<div class="empty" style="padding:16px">Aún no hay ventas registradas</div>'}${expandedProducts}</div><div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Órdenes del período</div>${latestOrders.map(o=>`<div class="summary-line"><span>#${o.order_number} — ${o.customers?escapeHtml(o.customers.name):"—"}</span><span>${fmt$(o.total)} · <span class="badge b-${o.status}">${statusLabel(o.status)}</span></span></div>`).join("")||'<div class="empty" style="padding:16px">No hay órdenes en este período</div>'}</div></div>
   <div class="panel" style="padding:18px"><div style="color:var(--dim);font-size:14px;margin-bottom:8px">Resumen del período</div><div class="summary-line"><span>Ingresos</span><span>${fmt$(period.sales)}</span></div><div class="summary-line"><span>Gastos</span><span>${fmt$(period.expenses)}</span></div><div class="summary-line total"><span>Ganancia estimada</span><span>${fmt$(period.balance)}</span></div></div>`;
 }
 
@@ -398,7 +442,7 @@ function gastosView(){
   let items=cache.expenses.filter(e=>!state.search || (e.description||"").toLowerCase().includes(state.search.toLowerCase()) || (e.providers?.name||"").toLowerCase().includes(state.search.toLowerCase()));
   const period=financialSummary(state.financialPeriod||"day");
   items=items.filter(e=>inFinancialRange(e.expense_date,period.range));
-  return `<div class="topbar"><h2>Ingresos y gastos</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><select id="financialPeriod"><option value="day" ${state.financialPeriod==="day"?"selected":""}>Día</option><option value="weekend" ${state.financialPeriod==="weekend"?"selected":""}>Fin de semana</option><option value="month" ${state.financialPeriod==="month"?"selected":""}>Mes</option></select><button class="btn-primary" id="newExp">+ Nuevo gasto</button></div></div>
+  return `<div class="topbar"><h2>Ingresos y gastos</h2><div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="newExp">+ Nuevo gasto</button></div></div>
   <div class="cards" style="margin-bottom:16px"><div class="card"><div class="label">Ingresos</div><div class="val">${fmt$(period.sales)}</div></div><div class="card"><div class="label">Gastos</div><div class="val">${fmt$(period.expenses)}</div></div><div class="card"><div class="label">Balance</div><div class="val">${fmt$(period.balance)}</div></div></div>
   <div class="toolbar"><input id="pSearch" placeholder="Buscar por descripción o proveedor..." value="${escapeHtml(state.search)}"></div>
   <div class="panel"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Monto Bs</th><th>Tasa</th><th>USD</th><th></th></tr></thead><tbody>${items.map(e=>`<tr><td>${e.expense_date}</td><td>${escapeHtml(e.category)}</td><td>${escapeHtml(e.description)}</td><td>${e.providers?escapeHtml(e.providers.name):"—"}</td><td>Bs. ${Number(e.amount_bs||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td><td>${Number(e.exchange_rate||0).toLocaleString("es-VE",{minimumFractionDigits:2})}</td><td>${fmt$(e.amount)}</td><td style="text-align:right"><button class="btn-ghost btn-sm" data-edit-exp="${e.id}">Editar</button> <button class="btn-danger btn-sm" data-del-exp="${e.id}">Eliminar</button></td></tr>`).join("")||'<tr><td colspan="8" class="empty">No hay gastos en este período</td></tr>'}</tbody></table></div>`;
@@ -1532,6 +1576,7 @@ document.addEventListener("click", async e=>{
 
   if(t.id==="newExp"){ state.editingExp=null; state.modal="exp"; render(); }
   if(t.id==="quickExpense"){ state.editingExp=null; state.modal="exp"; render(); }
+  if(t.id==="toggleTopProducts"){ state.showAllTopProducts=!state.showAllTopProducts; render(); return; }
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
@@ -1553,7 +1598,15 @@ document.addEventListener("click", async e=>{
 });
 
 document.addEventListener("change", async e=>{
-  if(e.target.id==="financialPeriod"){ state.financialPeriod=e.target.value; render(); return; }
+  if(e.target.id==="financialPeriod"){
+    state.financialPeriod=e.target.value;
+    state.showAllTopProducts=false;
+    render();
+    return;
+  }
+  if(e.target.id==="financialDate"){ state.financialDate=e.target.value || todayCaracas(); render(); return; }
+  if(e.target.id==="financialWeekendDate"){ state.financialWeekendDate=e.target.value || todayCaracas(); render(); return; }
+  if(e.target.id==="financialMonth"){ state.financialMonth=e.target.value || todayCaracas().slice(0,7); render(); return; }
   if(e.target.id==="inventoryLowOnly"){ state.inventoryLowOnly=e.target.checked; render(); return; }
 
 
