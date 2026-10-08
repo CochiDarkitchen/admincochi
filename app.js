@@ -31,7 +31,12 @@ function showFatalError(){
 /* ---------- helpers ---------- */
 function fmt$(n){ return "$"+Number(n||0).toFixed(2); }
 function fmtBs(n){ return "Bs. "+Math.round((n||0)*(cache.config.exchange_rate||1)).toLocaleString("es-VE"); }
-function todayCaracas(){ return new Date().toLocaleDateString("en-CA",{timeZone:TZ}); }
+function dateToISODate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function todayCaracas(){
+  const parts=new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+  const get=k=>parts.find(p=>p.type===k)?.value||"00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 function dateCaracas(ts){ return ts ? new Date(ts).toLocaleDateString("en-CA",{timeZone:TZ}) : ""; }
 function fmtDate(ts){ return ts ? new Date(ts).toLocaleDateString("es-VE",{timeZone:TZ}) : ""; }
 function fmtTime(ts){ return ts ? new Date(ts).toLocaleTimeString("es-VE",{timeZone:TZ,hour:"2-digit",minute:"2-digit"}) : ""; }
@@ -284,7 +289,7 @@ function financialCalendarHtml(mode, target="day"){
     if(n<1){ day=prevDays+n; m=month-1; muted=true; }
     else if(n>days){ day=n-days; m=month+1; muted=true; }
     const cellDate=new Date(y,m,day);
-    const value=cellDate.toLocaleDateString("en-CA");
+    const value=dateToISODate(cellDate);
     const active=mode==="range" ? (value===rangeStart || value===rangeEnd) : value===selected;
     const between=mode==="range" && rangeStart && rangeEnd && value>rangeStart && value<rangeEnd;
     cells.push(`<button class="cal-day ${muted?"muted":""} ${active?"active":""} ${between?"between":""}" data-cal-day="${value}" data-cal-target="${target}">${day}</button>`);
@@ -310,7 +315,7 @@ function orderCalendarHtml(){
     let day=n, m=month, y=year, muted=false;
     if(n<1){ day=prevDays+n; m=month-1; muted=true; }
     else if(n>days){ day=n-days; m=month+1; muted=true; }
-    const value=new Date(y,m,day).toLocaleDateString("en-CA");
+    const value=dateToISODate(new Date(y,m,day));
     cells.push(`<button class="cal-day ${muted?"muted":""} ${value===selected?"active":""}" data-order-cal-day="${value}">${day}</button>`);
   }
   return `<div class="financial-calendar order-calendar">
@@ -341,7 +346,7 @@ function financialControlsHtml(){
 }
 
 const FINANCIAL_CALENDAR_CSS = `<style>
-.financial-picker-wrap{position:relative;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:1000;right:0;top:100%;margin-top:6px;width:290px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.35)}.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.cal-weekdays,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cal-weekdays{font-size:11px;color:var(--dim);text-align:center;margin-bottom:5px}.cal-day,.cal-month{border:0;background:transparent;color:var(--text,#fff);border-radius:7px;cursor:pointer}.cal-day{height:32px}.cal-day:hover,.cal-month:hover{background:var(--bg3)}.cal-day.muted{color:var(--dim);opacity:.45}.cal-day.active,.cal-month.active{background:var(--accent);color:#111;font-weight:700}.cal-day.between{background:var(--bg3);color:var(--text,#fff)}.cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.cal-month{padding:10px 5px;font-size:12px}</style>`;
+.financial-picker-wrap{position:relative;z-index:1001;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left;white-space:nowrap}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:99999;right:0;top:calc(100% + 6px);margin-top:0;width:290px;max-width:min(290px,calc(100vw - 32px));padding:12px;background:var(--bg2,#222);color:var(--text,#fff);border:1px solid var(--border,#444);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.45);box-sizing:border-box}.financial-calendar *{box-sizing:border-box}.financial-calendar .cal-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;margin:0 0 10px!important}.financial-calendar .cal-head button{min-width:30px!important;width:30px!important;height:30px!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 30px!important}.financial-calendar .cal-weekdays{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;gap:4px!important;font-size:11px!important;color:var(--dim,#aaa)!important;text-align:center!important;margin:0 0 5px!important}.financial-calendar .cal-grid{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;grid-auto-rows:32px!important;gap:4px!important;width:100%!important}.financial-calendar .cal-day{appearance:none!important;-webkit-appearance:none!important;border:0!important;min-width:0!important;width:100%!important;height:32px!important;min-height:32px!important;max-height:32px!important;padding:0!important;margin:0!important;display:flex!important;align-items:center!important;justify-content:center!important;line-height:1!important;font-size:13px!important;font-weight:500!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;box-shadow:none!important;cursor:pointer!important}.financial-calendar .cal-day:hover{background:var(--bg3,#333)!important}.financial-calendar .cal-day.muted{color:var(--dim,#aaa)!important;opacity:.45!important}.financial-calendar .cal-day.active,.financial-calendar .cal-month.active{background:var(--accent,#f10)!important;color:#111!important;font-weight:700!important}.financial-calendar .cal-day.between{background:var(--bg3,#333)!important;color:var(--text,#fff)!important}.financial-calendar .cal-month-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}.financial-calendar .cal-month{appearance:none!important;border:0!important;min-width:0!important;padding:10px 5px!important;font-size:12px!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;cursor:pointer!important}.financial-calendar .cal-month:hover{background:var(--bg3,#333)!important}.financial-calendar .btn-ghost{color:var(--text,#fff)!important;background:transparent!important;border:1px solid var(--border,#444)!important}.order-date-picker{min-width:156px!important;z-index:1000}.order-calendar{left:0;right:auto;top:calc(100% + 6px)}</style>`;
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
@@ -628,7 +633,7 @@ function ordenesView(){
       .includes(o.status)
   ).length;
 
-  return `
+  return FINANCIAL_CALENDAR_CSS+`
 
     <div class="topbar">
 
@@ -1662,7 +1667,7 @@ document.addEventListener("click", async e=>{
     state.financialCalendarOpen=true;
     render(); return;
   }
-  if(t.dataset.calMonthNav){ const cursor=state.financialCalendarCursor||todayCaracas().slice(0,7); const d=new Date(cursor+"-01T12:00:00"); d.setMonth(d.getMonth()+(t.dataset.calMonthNav==="next"?1:-1)); state.financialCalendarCursor=d.toLocaleDateString("en-CA").slice(0,7); render(); return; }
+  if(t.dataset.calMonthNav){ const cursor=state.financialCalendarCursor||todayCaracas().slice(0,7); const d=new Date(cursor+"-01T12:00:00"); d.setMonth(d.getMonth()+(t.dataset.calMonthNav==="next"?1:-1)); state.financialCalendarCursor=dateToISODate(d).slice(0,7); render(); return; }
   if(t.dataset.calDay){
     const val=t.dataset.calDay;
     if(state.financialPeriod==="range"){
@@ -1690,7 +1695,7 @@ document.addEventListener("click", async e=>{
     const selected=state.orderDateFilter||todayCaracas(); state.orderCalendarCursor=selected.slice(0,7);
     render(); return;
   }
-  if(t.dataset.orderCalNav){ const cursor=state.orderCalendarCursor||todayCaracas().slice(0,7); const d=new Date(cursor+"-01T12:00:00"); d.setMonth(d.getMonth()+(t.dataset.orderCalNav==="next"?1:-1)); state.orderCalendarCursor=d.toLocaleDateString("en-CA").slice(0,7); render(); return; }
+  if(t.dataset.orderCalNav){ const cursor=state.orderCalendarCursor||todayCaracas().slice(0,7); const d=new Date(cursor+"-01T12:00:00"); d.setMonth(d.getMonth()+(t.dataset.orderCalNav==="next"?1:-1)); state.orderCalendarCursor=dateToISODate(d).slice(0,7); render(); return; }
   if(t.dataset.orderCalDay){ state.orderDateFilter=t.dataset.orderCalDay; state.orderCalendarOpen=false; state.orderCalendarCursor=t.dataset.orderCalDay.slice(0,7); render(); return; }
   if(t.dataset.orderCalClear){ state.orderDateFilter=""; state.orderCalendarOpen=false; render(); return; }
   if(t.id==="toggleTopProducts"){ state.showAllTopProducts=!state.showAllTopProducts; render(); return; }
