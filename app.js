@@ -94,7 +94,7 @@ const Api = {
   async remove(table, id){ const {error}=await sb.from(table).delete().eq("id",id); if(error) throw error; }
 };
 
-let cache = { products:[], customers:[], orders:[], orderItemsAll:[], expenses:[], providers:[], zones:[], inventory:[], productIngredients:[], config:{name:"COCHI",phone:"",address:"",exchange_rate:1} };
+let cache = { products:[], customers:[], orders:[], orderItemsAll:[], expenses:[], providers:[], zones:[], inventory:[], productIngredients:[], config:{name:"COCHI",phone:"",address:"",exchange_rate:1}, bcvRateDate:"", bcvUpdatedAt:"", bcvRateStatus:"Pendiente de consulta" };
 
 async function loadProducts(){ cache.products = await Api.list("products",{col:"name",asc:true}); }
 async function loadInventory(){ cache.inventory = await Api.list("ingredients",{col:"name",asc:true}); }
@@ -119,6 +119,48 @@ async function loadExpenses(){
 async function loadProviders(){ cache.providers = await Api.list("providers",{col:"name",asc:true}); }
 async function loadZones(){ cache.zones = await Api.list("delivery_zones",{col:"name",asc:true}); }
 async function loadConfig(){ const {data,error}=await sb.from("config").select("*").eq("id",1).single(); if(error) throw error; cache.config=data; applyTheme(); }
+
+// Actualiza la tasa BCV al abrir COCHI y vuelve a comprobarla cada 6 horas.
+// La API es un servicio público de terceros que publica datos atribuidos al BCV.
+let bcvSyncInProgress = false;
+async function syncBcvRate(showMessage=false){
+  if(bcvSyncInProgress || !sb) return false;
+  bcvSyncInProgress = true;
+  try{
+    const response = await fetch("https://bcv.today/api/v1/rate.json", {cache:"no-cache"});
+    if(!response.ok) throw new Error("No se pudo consultar la tasa BCV");
+    const data = await response.json();
+    const rate = Number(data && data.USD);
+    if(!Number.isFinite(rate) || rate <= 0 || !data.date) throw new Error("La respuesta de la tasa BCV no es válida");
+    const oldRate = Number(cache.config && cache.config.exchange_rate) || 0;
+    cache.bcvRateDate = String(data.effective_date || data.date);
+    cache.bcvUpdatedAt = String(data.updated_at || "");
+    if(Math.abs(oldRate-rate) >= 0.0001){
+      try{
+        await Api.update("config", 1, {exchange_rate:Number(rate.toFixed(4))});
+        cache.config.exchange_rate = Number(rate.toFixed(4));
+        cache.bcvRateStatus = "Actualizada automáticamente";
+      }catch(saveError){
+        // Mantiene la tasa vigente en esta sesión si Supabase no permite guardar el cambio.
+        cache.config.exchange_rate = Number(rate.toFixed(4));
+        cache.bcvRateStatus = "Consultada, pero no guardada en la base de datos";
+        console.warn("COCHI: se consultó la tasa BCV, pero no se pudo guardar en Supabase.", saveError);
+      }
+    }else{
+      cache.bcvRateStatus = "Al día";
+    }
+    if(showMessage){
+      if(cache.bcvRateStatus.includes("no guardada")) toast("Tasa BCV consultada, pero no se pudo guardar en Supabase", true);
+      else toast("Tasa BCV verificada: Bs. "+rate.toLocaleString("es-VE")+" ("+cache.bcvRateDate+")");
+    }
+    return true;
+  }catch(err){
+    cache.bcvRateStatus = "No se pudo consultar; se conserva la última tasa guardada";
+    console.warn("COCHI: no se pudo actualizar la tasa BCV automáticamente.", err);
+    if(showMessage) toast("No se pudo consultar el BCV. Se conserva la tasa guardada.", true);
+    return false;
+  }finally{ bcvSyncInProgress = false; }
+}
 async function loadAll(){ await Promise.all([loadProducts(),loadInventory(),loadProductIngredients(),loadCustomers(),loadOrdersAndItems(),loadExpenses(),loadProviders(),loadZones(),loadConfig()]); }
 
 let realtimeStarted = false;
@@ -137,8 +179,19 @@ function initRealtime(){
 let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialRangeStart:todayCaracas(), financialRangeEnd:todayCaracas(), financialRangeTarget:"start", financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), orderCalendarOpen:false, orderCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false };
 
 async function initApp(){
-  try{ await loadAll(); initRealtime(); render(); }
-  catch(e){ toast(friendlyError(e), true); render(); }
+  try{
+    await loadAll();
+    await syncBcvRate(false);
+    initRealtime();
+    render();
+    // Si COCHI permanece abierto, vuelve a consultar la tasa durante el día.
+    if(!window.__cochiBcvTimer){
+      window.__cochiBcvTimer = setInterval(async()=>{
+        const ok = await syncBcvRate(false);
+        if(ok && state.route !== "loading" && state.route !== "login") render();
+      }, 6 * 60 * 60 * 1000);
+    }
+  }catch(e){ toast(friendlyError(e), true); render(); }
 }
 
 /* ---------- RENDER ---------- */
@@ -1250,8 +1303,10 @@ function configView(){
   </div>
   <div class="panel" style="padding:20px;margin-bottom:18px">
     <div style="color:var(--dim);font-size:14px;margin-bottom:12px">Moneda</div>
-    <div class="field" style="max-width:220px"><label>Tasa (1 USD = ? Bs)</label><input id="c-rate" type="number" step="0.01" value="${c.exchange_rate}"></div>
-    <div style="font-size:12px;color:var(--dim)">Las órdenes ya creadas guardan su propia tasa y no cambian.</div>
+    <div class="field" style="max-width:260px"><label>Tasa (1 USD = ? Bs)</label><input id="c-rate" type="number" step="0.0001" value="${c.exchange_rate}"></div>
+    <div style="font-size:12px;color:var(--dim);margin-top:8px">Tasa BCV: <b>${escapeHtml(cache.bcvRateStatus || "Pendiente de consulta")}</b>${cache.bcvRateDate ? ` · Fecha de vigencia: ${escapeHtml(cache.bcvRateDate)}` : ""}</div>
+    <div style="font-size:12px;color:var(--dim);margin-top:6px">COCHI consulta automáticamente la tasa al abrir la aplicación y vuelve a revisarla cada 6 horas mientras permanezca abierta. Las órdenes ya creadas conservan su tasa original.</div>
+    <button class="btn-ghost btn-sm" id="refreshBcvRate" style="margin-top:10px">↻ Actualizar tasa BCV ahora</button>
   </div>
   <div class="panel" style="padding:20px;margin-bottom:18px">
     <div style="color:var(--dim);font-size:14px;margin-bottom:12px">Apariencia</div>
@@ -1705,6 +1760,11 @@ document.addEventListener("click", async e=>{
   if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderCustomerSearch=""; state.quickCustomerOpen=false; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.orderProdSearch=""; state.modal="order"; render(); }
   if(t.dataset.ticket){ const o=cache.orders.find(x=>x.id===t.dataset.ticket); if(o) openTicketForOrder(o); }
 
+  if(t.id==="refreshBcvRate"){
+    const ok = await syncBcvRate(true);
+    if(ok){ await loadConfig().catch(()=>{}); render(); }
+    return;
+  }
   if(t.id==="saveConfig"){
     const val={name:document.getElementById("c-name").value, phone:document.getElementById("c-phone").value, address:document.getElementById("c-addr").value, exchange_rate:parseFloat(document.getElementById("c-rate").value)||cache.config.exchange_rate, logo_url:document.getElementById("c-logo").value.trim(), color_bg:document.getElementById("c-bg").value, color_accent:document.getElementById("c-accent").value};
     try{ await Api.update("config",1,val); await loadConfig(); render(); toast("Configuración guardada"); }catch(err){ toast(friendlyError(err), true); }
