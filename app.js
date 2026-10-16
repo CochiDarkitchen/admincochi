@@ -240,33 +240,58 @@ function wireLogin(){
   document.getElementById("lp").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 }
 
-const NAV = [["dashboard","📊 Dashboard"],["ordenes","🧾 Órdenes"],["productos","🍗 Platillos"],["inventario","📦 Inventario"],["clientes","👤 Clientes"],["gastos","💸 Gastos"],["proveedores","🏭 Proveedores"],["config","⚙️ Configuración"]];
+const NAV = [
+  ["dashboard","Dashboard"],
+  ["ordenes","Órdenes"],
+  ["productos","Platillos"],
+  ["inventario","Inventario"],
+  ["clientes","Clientes"],
+  ["gastos","Gastos"],
+  ["proveedores","Proveedores"],
+  ["config","Configuración"]
+];
+
+function navIconSvg(name){
+  const icons = {
+    dashboard:'<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>',
+    ordenes:'<path d="M8 5h11a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 19 21H5a1.5 1.5 0 0 1-1.5-1.5V8z"/><path d="M8 3.5v3M7.5 11h9M7.5 15h9M7.5 18h5"/>',
+    productos:'<path d="M4 9.5h16l-1.3 10H5.3z"/><path d="M7 9.5a5 5 0 0 1 10 0M8 13h8M9 16h6"/>',
+    inventario:'<path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="m3.8 7.7 8.2 4.5 8.2-4.5M12 12.2V21"/>',
+    clientes:'<circle cx="9" cy="8" r="3.5"/><path d="M2.8 20a6.2 6.2 0 0 1 12.4 0M16 5.2a3.5 3.5 0 0 1 0 6.6M17.3 14.2a5.6 5.6 0 0 1 3.9 5.3"/>',
+    gastos:'<circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.8c-.7-.8-1.7-1.2-3-1.2-1.5 0-2.6.8-2.6 1.9 0 3.1 5.6 1.2 5.6 4.4 0 1.2-1.1 2.2-3 2.2-1.3 0-2.5-.5-3.2-1.5M12.5 5.7v12.6"/>',
+    proveedores:'<path d="M3.5 20.5h17M5.5 20.5V8l6.5-4 6.5 4v12.5M9 20.5v-5h6v5M8 10.5h.1M12 10.5h.1M16 10.5h.1"/>',
+    config:'<path d="M4 7h8M16 7h4M4 17h4M12 17h8"/><circle cx="14" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+    more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+    logout:'<path d="M10 17l5-5-5-5M15 12H3.5M12 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/>'
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.dashboard}</svg>`;
+}
 
 function shellView(){
   const views = { dashboard:dashboardView, ordenes:ordenesView, productos:productosView, inventario:inventarioView, clientes:clientesView, gastos:gastosView, proveedores:proveedoresView, config:configView };
   const body = (views[state.route]||dashboardView)();
   const mainMobile = [
-    ["dashboard","⌂","Inicio"],
-    ["ordenes","🧾","Órdenes"],
-    ["inventario","📦","Stock"],
-    ["gastos","💸","Gastos"]
+    ["dashboard","Inicio"],
+    ["ordenes","Órdenes"],
+    ["inventario","Stock"],
+    ["gastos","Gastos"]
   ];
   const moreNav = NAV.filter(([k])=>!["dashboard","ordenes","inventario","gastos"].includes(k));
   const isMoreActive = moreNav.some(([k])=>state.route===k);
   return `<div id="shell">
-    <div id="sidebar">
+    <aside id="sidebar" aria-label="Navegación de administración">
       ${logoHtml(36)}<div class="tag">Administración</div>
-      ${NAV.map(([k,l])=>`<button class="nav-item ${state.route===k?'active':''}" data-nav="${k}">${l}</button>`).join("")}
-      <button class="btn-ghost" id="logout">Cerrar sesión</button>
-    </div>
+      ${NAV.map(([k,l])=>`<button type="button" class="nav-item ${state.route===k?'active':''}" data-nav="${k}" aria-current="${state.route===k?'page':'false'}"><span class="nav-symbol">${navIconSvg(k)}</span><span>${l}</span></button>`).join("")}
+      <button type="button" class="btn-ghost" id="logout"><span class="nav-symbol" style="display:inline-flex;vertical-align:middle;margin-right:8px">${navIconSvg("logout")}</span>Cerrar sesión</button>
+    </aside>
     <main>${body}</main>
     <div id="mobile-more-menu" class="${state.mobileMoreOpen?'open':''}" aria-label="Más secciones">
-      ${moreNav.map(([k,l])=>`<button type="button" class="${state.route===k?'active':''}" data-nav="${k}">${l}</button>`).join("")}
-      <button type="button" id="mobileLogout">↪ Cerrar sesión</button>
+      ${moreNav.map(([k,l])=>`<button type="button" class="${state.route===k?'active':''}" data-nav="${k}" aria-current="${state.route===k?'page':'false'}"><span class="nav-symbol">${navIconSvg(k)}</span><span>${l}</span></button>`).join("")}
+      <button type="button" id="mobileLogout"><span class="nav-symbol">${navIconSvg("logout")}</span><span>Cerrar sesión</span></button>
     </div>
     <nav id="mobile-nav" aria-label="Navegación principal">
-      ${mainMobile.map(([k,icon,label])=>`<button type="button" class="${state.route===k?'active':''}" data-nav="${k}" aria-current="${state.route===k?'page':'false'}"><span class="nav-icon">${icon}</span><span class="nav-label">${label}</span></button>`).join("")}
-      <button type="button" id="mobileMoreToggle" class="${state.mobileMoreOpen||isMoreActive?'active':''}" data-more-active="${isMoreActive?'true':'false'}" aria-expanded="${state.mobileMoreOpen?'true':'false'}"><span class="nav-icon">☰</span><span class="nav-label">Más</span></button>
+      ${mainMobile.map(([k,label])=>`<button type="button" class="${state.route===k?'active':''}" data-nav="${k}" aria-current="${state.route===k?'page':'false'}"><span class="nav-icon">${navIconSvg(k)}</span><span class="nav-label">${label}</span></button>`).join("")}
+      <button type="button" id="mobileMoreToggle" class="${state.mobileMoreOpen||isMoreActive?'active':''}" data-more-active="${isMoreActive?'true':'false'}" aria-expanded="${state.mobileMoreOpen?'true':'false'}"><span class="nav-icon">${navIconSvg("more")}</span><span class="nav-label">Más</span></button>
     </nav>
   </div>`;
 }
@@ -282,6 +307,7 @@ function wireShell(){
     state.financialCalendarOpen=false;
     state.orderCalendarOpen=false;
     render();
+    window.scrollTo({top:0,behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"});
   });
   const lo=document.getElementById("logout");
   if(lo) lo.onclick=()=>sb.auth.signOut();
