@@ -4,7 +4,7 @@
    (Project Settings → API → Project URL / anon public key).
    La anon key NO es secreta: está pensada para vivir en el navegador,
    la seguridad real la da RLS (ver schema.sql). Nunca pongas aquí la
-   service_role key.
+   service_role key. 
    ============================================================ */
 const SUPABASE_URL = "https://nckixbdxifkibzczpiox.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_hPMA7Elf8N02liO33NyGgg_Idkecirf";
