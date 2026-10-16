@@ -4,7 +4,7 @@
    (Project Settings → API → Project URL / anon public key).
    La anon key NO es secreta: está pensada para vivir en el navegador,
    la seguridad real la da RLS (ver schema.sql). Nunca pongas aquí la
-   service_role key. 
+   service_role key.
    ============================================================ */
 const SUPABASE_URL = "https://nckixbdxifkibzczpiox.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_hPMA7Elf8N02liO33NyGgg_Idkecirf";
@@ -206,11 +206,30 @@ function enhanceResponsiveTables(){
     });
   });
 }
+let cochiLastAnimatedRoute=null;
 function render(){
   const root=document.getElementById("root");
-  if(state.route==="loading"){ root.innerHTML = `<div id="login"><div class="login-box c" style="text-align:center">Cargando…</div></div>`; return; }
+  const routeChanged=cochiLastAnimatedRoute!==state.route;
+  cochiLastAnimatedRoute=state.route;
+  if(state.route==="loading"){
+    root.innerHTML = `<div id="login"><div class="login-box c cochi-login-enter" style="text-align:center">Cargando…</div></div>`;
+    return;
+  }
   root.innerHTML = state.route==="login" ? loginView() : shellView();
   enhanceResponsiveTables();
+  if(routeChanged){
+    const main=root.querySelector("#shell main");
+    if(main){
+      main.classList.add("cochi-view-enter");
+      main.querySelectorAll(".cards>.card").forEach((card,index)=>{
+        card.style.setProperty("--cochi-stagger",String(Math.min(index,7)));
+      });
+    }
+    const activeMobileNav=root.querySelector("#mobile-nav button.active");
+    if(activeMobileNav && routeChanged) activeMobileNav.classList.add("cochi-nav-enter");
+    const loginBox=root.querySelector("#login .login-box");
+    if(loginBox) loginBox.classList.add("cochi-login-enter");
+  }
   wireLogin(); wireShell();
   if(state.modal) openModal(state.modal);
 }
@@ -1278,8 +1297,8 @@ function configView(){
 function openModal(name){
   const previous=document.getElementById("overlay"); if(previous) previous.remove();
   const wrap=document.createElement("div"); wrap.className=name==="order"?"overlay order-modal":"overlay"; wrap.id="overlay";
-  document.body.classList.add("modal-open");
   const box=document.createElement("div"); box.className="modal";
+  box.setAttribute("role","dialog"); box.setAttribute("aria-modal","true");
   if(name==="prod") { box.style.maxWidth="760px"; box.innerHTML = productFormHtml(state.editingProd); }
   if(name==="cust") box.innerHTML = customerFormHtml(state.editingCust);
   if(name==="exp") box.innerHTML = expenseFormHtml(state.editingExp);
@@ -1287,11 +1306,26 @@ function openModal(name){
   if(name==="inventory") box.innerHTML = inventoryFormHtml(state.editingInventory);
   if(name==="inventoryMove") box.innerHTML = inventoryMovementHtml(state.inventoryMoveItem,state.inventoryMoveType);
   if(name==="order"){ box.style.maxWidth="820px"; box.innerHTML = orderBuilderHtml(); }
+  const title=box.querySelector("h3");
+  if(title){ title.id="cochi-modal-title"; box.setAttribute("aria-labelledby","cochi-modal-title"); }
+  document.body.classList.add("modal-open");
   wrap.appendChild(box); document.body.appendChild(wrap);
   wrap.onclick = e=>{ if(e.target===wrap){ closeModal(); } };
   wireModal(name);
 }
-function closeModal(){ state.modal=null; const o=document.getElementById("overlay"); if(o) o.remove(); document.body.classList.remove("modal-open"); }
+function closeModal(){
+  state.modal=null;
+  const o=document.getElementById("overlay");
+  document.body.classList.remove("modal-open");
+  if(!o || o.dataset.closing==="true") return;
+  o.dataset.closing="true";
+  o.classList.add("cochi-overlay-exit");
+  const box=o.querySelector(".modal");
+  if(box) box.classList.add("cochi-modal-exit");
+  const reduceMotion=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(reduceMotion){ o.remove(); return; }
+  window.setTimeout(()=>{ if(o.isConnected) o.remove(); },180);
+}
 
 function busySave(btn, fn){
   return async ()=>{
