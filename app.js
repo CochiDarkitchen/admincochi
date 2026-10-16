@@ -68,7 +68,7 @@ function logoHtml(size){
 
 function toast(msg, isError){
   let t = document.getElementById("toast");
-  if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
+  if(!t){ t=document.createElement("div"); t.id="toast"; t.setAttribute("role","status"); t.setAttribute("aria-live","polite"); document.body.appendChild(t); }
   t.textContent = msg; t.className = isError ? "toast err show" : "toast show";
   clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("show"), isError?4000:2200);
 }
@@ -176,7 +176,7 @@ function initRealtime(){
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialRangeStart:todayCaracas(), financialRangeEnd:todayCaracas(), financialRangeTarget:"start", financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), orderCalendarOpen:false, orderCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false, mobileMoreOpen:false };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialRangeStart:todayCaracas(), financialRangeEnd:todayCaracas(), financialRangeTarget:"start", financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), orderCalendarOpen:false, orderCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false, mobileMoreOpen:false, orderProdSearch:"" };
 
 async function initApp(){
   try{
@@ -195,25 +195,22 @@ async function initApp(){
 }
 
 /* ---------- RENDER ---------- */
-function enhanceMobileTables(){
+function enhanceResponsiveTables(){
   document.querySelectorAll("#root table").forEach(table=>{
-    const headers=Array.from(table.querySelectorAll("thead tr:first-child th"))
-      .map((th,i)=>th.textContent.trim() || (i===table.querySelectorAll("thead tr:first-child th").length-1 ? "Acciones" : "Detalle"));
+    const labels=Array.from(table.querySelectorAll("thead th")).map(th=>(th.textContent||"").trim());
     table.querySelectorAll("tbody tr").forEach(row=>{
-      Array.from(row.cells).forEach((cell,index)=>{
-        if(cell.hasAttribute("colspan")) return;
-        if(!cell.dataset.label) cell.dataset.label=headers[index] || "Detalle";
-        if(cell.querySelector("button")) cell.classList.add("mobile-actions");
+      Array.from(row.children).forEach((cell,index)=>{
+        if(cell.tagName!=="TD" || cell.hasAttribute("colspan")) return;
+        if(!cell.hasAttribute("data-label")) cell.setAttribute("data-label",labels[index]||"");
       });
     });
   });
 }
-
 function render(){
   const root=document.getElementById("root");
   if(state.route==="loading"){ root.innerHTML = `<div id="login"><div class="login-box c" style="text-align:center">Cargando…</div></div>`; return; }
   root.innerHTML = state.route==="login" ? loginView() : shellView();
-  enhanceMobileTables();
+  enhanceResponsiveTables();
   wireLogin(); wireShell();
   if(state.modal) openModal(state.modal);
 }
@@ -243,63 +240,56 @@ function wireLogin(){
   document.getElementById("lp").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 }
 
-const NAV = [
-  ["dashboard","📊","Dashboard"],
-  ["ordenes","🧾","Órdenes"],
-  ["inventario","📦","Inventario"],
-  ["gastos","💸","Gastos"],
-  ["productos","🍗","Platillos"],
-  ["clientes","👤","Clientes"],
-  ["proveedores","🏭","Proveedores"],
-  ["config","⚙️","Configuración"]
-];
-const MOBILE_PRIMARY_NAV = ["dashboard","ordenes","inventario","gastos"];
+const NAV = [["dashboard","📊 Dashboard"],["ordenes","🧾 Órdenes"],["productos","🍗 Platillos"],["inventario","📦 Inventario"],["clientes","👤 Clientes"],["gastos","💸 Gastos"],["proveedores","🏭 Proveedores"],["config","⚙️ Configuración"]];
 
 function shellView(){
   const views = { dashboard:dashboardView, ordenes:ordenesView, productos:productosView, inventario:inventarioView, clientes:clientesView, gastos:gastosView, proveedores:proveedoresView, config:configView };
   const body = (views[state.route]||dashboardView)();
-  const mobilePrimary = NAV.filter(([key])=>MOBILE_PRIMARY_NAV.includes(key));
-  const mobileSecondary = NAV.filter(([key])=>!MOBILE_PRIMARY_NAV.includes(key));
-  const moreIsActive = mobileSecondary.some(([key])=>key===state.route);
+  const mainMobile = [
+    ["dashboard","⌂","Inicio"],
+    ["ordenes","🧾","Órdenes"],
+    ["inventario","📦","Stock"],
+    ["gastos","💸","Gastos"]
+  ];
+  const moreNav = NAV.filter(([k])=>!["dashboard","ordenes","inventario","gastos"].includes(k));
+  const isMoreActive = moreNav.some(([k])=>state.route===k);
   return `<div id="shell">
     <div id="sidebar">
       ${logoHtml(36)}<div class="tag">Administración</div>
-      ${NAV.map(([k,icon,label])=>`<button class="nav-item ${state.route===k?'active':''}" data-nav="${k}">${icon} ${label}</button>`).join("")}
+      ${NAV.map(([k,l])=>`<button class="nav-item ${state.route===k?'active':''}" data-nav="${k}">${l}</button>`).join("")}
       <button class="btn-ghost" id="logout">Cerrar sesión</button>
     </div>
     <main>${body}</main>
-    ${state.mobileMoreOpen ? `<button id="mobile-more-backdrop" aria-label="Cerrar menú de secciones"></button><div id="mobile-more-menu" role="menu" aria-label="Más secciones"><div class="more-title">MÁS SECCIONES</div>${mobileSecondary.map(([k,icon,label])=>`<button role="menuitem" class="${state.route===k?'active':''}" data-nav="${k}"><span class="more-icon">${icon}</span><span>${label}</span></button>`).join("")}<button id="mobile-logout" type="button"><span class="more-icon">↪</span><span>Cerrar sesión</span></button></div>` : ""}
-    <div id="mobile-nav" aria-label="Navegación principal">
-      ${mobilePrimary.map(([k,icon,label])=>{
-        const shortLabel = k==="dashboard" ? "Inicio" : (k==="inventario" ? "Stock" : label);
-        return `<button type="button" class="${state.route===k?'active':''}" data-nav="${k}" aria-label="${label}" title="${label}"><span class="mobile-nav-icon" aria-hidden="true">${icon}</span><span class="mobile-nav-label">${shortLabel}</span></button>`;
-      }).join("")}
-      <button type="button" id="mobile-more-toggle" class="${moreIsActive || state.mobileMoreOpen?'active':''}" aria-label="Más secciones" aria-expanded="${state.mobileMoreOpen?'true':'false'}" title="Más secciones"><span class="mobile-nav-icon" aria-hidden="true">⋯</span><span class="mobile-nav-label">Más</span></button>
+    <div id="mobile-more-menu" class="${state.mobileMoreOpen?'open':''}" aria-label="Más secciones">
+      ${moreNav.map(([k,l])=>`<button type="button" class="${state.route===k?'active':''}" data-nav="${k}">${l}</button>`).join("")}
+      <button type="button" id="mobileLogout">↪ Cerrar sesión</button>
     </div>
+    <nav id="mobile-nav" aria-label="Navegación principal">
+      ${mainMobile.map(([k,icon,label])=>`<button type="button" class="${state.route===k?'active':''}" data-nav="${k}" aria-current="${state.route===k?'page':'false'}"><span class="nav-icon">${icon}</span><span class="nav-label">${label}</span></button>`).join("")}
+      <button type="button" id="mobileMoreToggle" class="${state.mobileMoreOpen||isMoreActive?'active':''}" data-more-active="${isMoreActive?'true':'false'}" aria-expanded="${state.mobileMoreOpen?'true':'false'}"><span class="nav-icon">☰</span><span class="nav-label">Más</span></button>
+    </nav>
   </div>`;
 }
 function wireShell(){
   document.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>{
     state.route=b.dataset.nav;
-    state.mobileMoreOpen=false;
     state.modal=null;
+    state.mobileMoreOpen=false;
     state.search="";
     state.filterStatus="";
     state.inventorySearch="";
     state.inventoryLowOnly=false;
+    state.financialCalendarOpen=false;
+    state.orderCalendarOpen=false;
     render();
-    window.scrollTo({top:0,behavior:"smooth"});
   });
-  const moreToggle=document.getElementById("mobile-more-toggle");
-  if(moreToggle) moreToggle.onclick=()=>{ state.mobileMoreOpen=!state.mobileMoreOpen; render(); };
-  const backdrop=document.getElementById("mobile-more-backdrop");
-  if(backdrop) backdrop.onclick=()=>{ state.mobileMoreOpen=false; render(); };
   const lo=document.getElementById("logout");
   if(lo) lo.onclick=()=>sb.auth.signOut();
-  const mobileLogout=document.getElementById("mobile-logout");
-  if(mobileLogout) mobileLogout.onclick=()=>{ state.mobileMoreOpen=false; sb.auth.signOut(); };
+  const mobileLo=document.getElementById("mobileLogout");
+  if(mobileLo) mobileLo.onclick=()=>sb.auth.signOut();
+  const more=document.getElementById("mobileMoreToggle");
+  if(more) more.onclick=e=>{ e.stopPropagation(); state.mobileMoreOpen=!state.mobileMoreOpen; render(); };
 }
-
 function statusLabel(s){
   return {
     pendiente:"Pendiente",
@@ -442,7 +432,7 @@ function financialControlsHtml(){
 }
 
 const FINANCIAL_CALENDAR_CSS = `<style>
-.financial-picker-wrap{position:relative;z-index:1001;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left;white-space:nowrap}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:99999;right:0;top:calc(100% + 6px);margin-top:0;width:290px;max-width:min(290px,calc(100vw - 32px));padding:12px;background:var(--bg2,#222);color:var(--text,#fff);border:1px solid var(--border,#444);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.45);box-sizing:border-box}.financial-calendar *{box-sizing:border-box}.financial-calendar .cal-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;margin:0 0 10px!important}.financial-calendar .cal-head button{min-width:30px!important;width:30px!important;height:30px!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 30px!important}.financial-calendar .cal-weekdays{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;gap:4px!important;font-size:11px!important;color:var(--dim,#aaa)!important;text-align:center!important;margin:0 0 5px!important}.financial-calendar .cal-grid{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;grid-auto-rows:32px!important;gap:4px!important;width:100%!important}.financial-calendar .cal-day{appearance:none!important;-webkit-appearance:none!important;border:0!important;min-width:0!important;width:100%!important;height:32px!important;min-height:32px!important;max-height:32px!important;padding:0!important;margin:0!important;display:flex!important;align-items:center!important;justify-content:center!important;line-height:1!important;font-size:13px!important;font-weight:500!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;box-shadow:none!important;cursor:pointer!important}.financial-calendar .cal-day:hover{background:var(--bg3,#333)!important}.financial-calendar .cal-day.muted{color:var(--dim,#aaa)!important;opacity:.45!important}.financial-calendar .cal-day.active,.financial-calendar .cal-month.active{background:var(--accent,#f10)!important;color:#111!important;font-weight:700!important}.financial-calendar .cal-day.between{background:var(--bg3,#333)!important;color:var(--text,#fff)!important}.financial-calendar .cal-month-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}.financial-calendar .cal-month{appearance:none!important;border:0!important;min-width:0!important;padding:10px 5px!important;font-size:12px!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;cursor:pointer!important}.financial-calendar .cal-month:hover{background:var(--bg3,#333)!important}.financial-calendar .btn-ghost{color:var(--text,#fff)!important;background:transparent!important;border:1px solid var(--border,#444)!important}.order-date-picker{min-width:156px!important;z-index:1000}.order-calendar{left:0;right:auto;top:calc(100% + 6px)}@media(max-width:820px){.financial-calendar{position:fixed!important;left:50%!important;right:auto!important;top:auto!important;bottom:calc(76px + env(safe-area-inset-bottom))!important;transform:translateX(-50%);width:min(320px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 110px);overflow:auto}.order-calendar{left:50%!important;right:auto!important}}</style>`;
+.financial-picker-wrap{position:relative;z-index:1001;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left;white-space:nowrap}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:99999;right:0;top:calc(100% + 6px);margin-top:0;width:290px;max-width:min(290px,calc(100vw - 32px));padding:12px;background:var(--bg2,#222);color:var(--text,#fff);border:1px solid var(--border,#444);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.45);box-sizing:border-box}.financial-calendar *{box-sizing:border-box}.financial-calendar .cal-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;margin:0 0 10px!important}.financial-calendar .cal-head button{min-width:30px!important;width:30px!important;height:30px!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 30px!important}.financial-calendar .cal-weekdays{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;gap:4px!important;font-size:11px!important;color:var(--dim,#aaa)!important;text-align:center!important;margin:0 0 5px!important}.financial-calendar .cal-grid{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;grid-auto-rows:32px!important;gap:4px!important;width:100%!important}.financial-calendar .cal-day{appearance:none!important;-webkit-appearance:none!important;border:0!important;min-width:0!important;width:100%!important;height:32px!important;min-height:32px!important;max-height:32px!important;padding:0!important;margin:0!important;display:flex!important;align-items:center!important;justify-content:center!important;line-height:1!important;font-size:13px!important;font-weight:500!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;box-shadow:none!important;cursor:pointer!important}.financial-calendar .cal-day:hover{background:var(--bg3,#333)!important}.financial-calendar .cal-day.muted{color:var(--dim,#aaa)!important;opacity:.45!important}.financial-calendar .cal-day.active,.financial-calendar .cal-month.active{background:var(--accent,#f10)!important;color:#111!important;font-weight:700!important}.financial-calendar .cal-day.between{background:var(--bg3,#333)!important;color:var(--text,#fff)!important}.financial-calendar .cal-month-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}.financial-calendar .cal-month{appearance:none!important;border:0!important;min-width:0!important;padding:10px 5px!important;font-size:12px!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;cursor:pointer!important}.financial-calendar .cal-month:hover{background:var(--bg3,#333)!important}.financial-calendar .btn-ghost{color:var(--text,#fff)!important;background:transparent!important;border:1px solid var(--border,#444)!important}.order-date-picker{min-width:156px!important;z-index:1000}.order-calendar{left:0;right:auto;top:calc(100% + 6px)}</style>`;
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
@@ -480,7 +470,7 @@ function dashboardView(){
   const productsButton=ranked.length>5?`<button class="btn-ghost btn-sm" id="toggleTopProducts">${state.showAllTopProducts?"Ocultar":"Expandir"}</button>`:"";
   const expandedProducts=state.showAllTopProducts?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${allProductsRows||'<div class="empty" style="padding:16px">No hay productos registrados</div>'}</div>`:"";
 
-  return FINANCIAL_CALENDAR_CSS+`<div class="topbar"><h2>Dashboard</h2><div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="quickExpense">+ Añadir gasto</button></div></div>
+  return FINANCIAL_CALENDAR_CSS+`<div class="topbar"><h2>Dashboard</h2><div class="dashboard-actions" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">${financialControlsHtml()}<button class="btn-primary" id="quickNewOrder">＋ Nueva orden</button><button class="btn-ghost" id="quickExpense">＋ Añadir gasto</button></div></div>
   <div class="panel" style="padding:12px 16px;margin-bottom:16px"><b>Ingresos y gastos · ${period.range.label}</b><div style="font-size:12px;color:var(--dim);margin-top:3px">${formatFinancialRange(period.range)}</div></div>
   <div class="cards">
     <div class="card"><div class="label">Ingresos del período</div><div class="val">${fmt$(ventasPeriodo)}</div><div class="sub">${fmtBs(ventasPeriodo)}</div></div>
@@ -1149,188 +1139,74 @@ function ordenesView(){
 }
 
 function orderBuilderHtml(){
-  const term = (state.orderProdSearch||"").toLowerCase();
+  const term = (state.orderProdSearch||"").toLowerCase().trim();
   const products = cache.products.filter(p=>p.available && (!term || p.name.toLowerCase().includes(term)));
   const customers = cache.customers;
   const zones = cache.zones.filter(z=>z.active!==false);
-
   const subtotal = state.orderCart.reduce((s,l)=>s+l.price*l.qty,0);
   const zone = zones.find(z=>z.id===state.orderZone) || {cost:0};
-  const discount = state.orderDiscount||0;
-  const total = subtotal + Number(zone.cost) - discount;
-
+  const discount = Number(state.orderDiscount||0);
+  const total = subtotal + Number(zone.cost||0) - discount;
+  const itemCount = state.orderCart.reduce((s,l)=>s+Number(l.qty||0),0);
   const search = (state.orderCustomerSearch||"").toLowerCase().trim();
-
-  let customerResults = customers.filter(c=>{
-    const name = (c.name||"").toLowerCase();
-    const phone = (c.phone||"").toLowerCase();
-    const address = (c.address||"").toLowerCase();
-    if(c.id===state.orderCustomer) return false;
-    return !search || name.includes(search) || phone.includes(search) || address.includes(search);
-  }).slice(0,8);
-
+  const customerResults = search ? customers.filter(c=>{
+    const name=(c.name||"").toLowerCase(), phone=(c.phone||"").toLowerCase(), address=(c.address||"").toLowerCase();
+    return c.id!==state.orderCustomer && (name.includes(search)||phone.includes(search)||address.includes(search));
+  }).slice(0,8) : [];
   const selectedCustomer = customers.find(c=>c.id===state.orderCustomer);
-
+  const customerResultsHtml = search
+    ? (customerResults.length ? customerResults.map(c=>`<button type="button" class="customer-result" data-select-order-cust="${c.id}"><span><b>${escapeHtml(c.name)}</b><span style="color:var(--dim);font-size:12px"> · ${escapeHtml(c.phone||"Sin teléfono")}</span>${c.address?`<span style="display:block;color:var(--dim);font-size:11px;margin-top:2px">${escapeHtml(c.address)}</span>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:21px">›</span></button>`).join("") : `<div class="empty" style="padding:12px">No encontramos ese cliente. Comprueba el nombre o crea uno nuevo.</div>`)
+    : `<div class="empty" style="padding:10px;font-size:12px">Escribe al menos una parte del nombre o teléfono para buscar un cliente.</div>`;
   return `<h3>Nueva orden</h3>
-
+  <div class="order-mobile-summary" aria-live="polite">
+    <div class="oms-copy"><span class="oms-label">Orden en curso</span><strong>${itemCount} ${itemCount===1?"producto":"productos"} · ${fmt$(total)}</strong><small>${fmtBs(total)} · ${state.orderCart.length?"Carrito actualizado":"Agrega productos para comenzar"}</small></div>
+    <button type="button" class="btn-ghost btn-sm" id="scrollOrderCart">Ver carrito ↓</button>
+  </div>
   <div class="ob-grid">
    <div>
-
-    <div class="field">
-      <label>Cliente</label>
-      <input id="ob-cust-search" type="text" placeholder="🔎 Buscar cliente por nombre, teléfono o dirección..." value="${escapeHtml(state.orderCustomerSearch||"")}" autocomplete="off">
-      <input type="hidden" id="ob-cust" value="${state.orderCustomer||""}">
-      ${selectedCustomer ? `<div class="panel" style="margin-top:8px;padding:10px;border:1px solid var(--accent)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div style="font-weight:600">✓ ${escapeHtml(selectedCustomer.name)}</div><div style="font-size:12px;color:var(--dim)">${escapeHtml(selectedCustomer.phone||"Sin teléfono")}</div>${selectedCustomer.address?`<div style="font-size:12px;color:var(--dim);margin-top:3px">${escapeHtml(selectedCustomer.address)}</div>`:""}</div><button type="button" class="btn-ghost btn-sm" id="clearOrderCust">✕</button></div></div>`:""}
-      <div id="orderCustomerResults" class="panel" style="margin-top:8px;padding:6px 12px;max-height:220px;overflow-y:auto">${customerResults.length?customerResults.map(c=>`<div class="prod-pick" data-select-order-cust="${c.id}" style="cursor:pointer"><span><b>${escapeHtml(c.name)}</b><span style="color:var(--dim);font-size:12px"> · ${escapeHtml(c.phone||"Sin teléfono")}</span>${c.address?`<div style="color:var(--dim);font-size:11px;margin-top:2px">${escapeHtml(c.address)}</div>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:18px">›</span></div>`).join(""):`<div class="empty" style="padding:12px">No encontramos ese cliente.</div>`}</div>
-      <button type="button" class="btn-ghost btn-sm" id="quickNewCustomer" style="margin-top:7px">+ Crear cliente rápidamente</button>
-      ${state.quickCustomerOpen?`<div class="panel" style="margin-top:10px;padding:12px"><div style="font-weight:600;margin-bottom:10px">Nuevo cliente</div><div class="field"><label>Nombre</label><input id="qc-name" placeholder="Nombre del cliente"></div><div class="field"><label>Teléfono</label><input id="qc-phone" placeholder="0414-1234567"></div><div class="field"><label>Dirección</label><input id="qc-address" placeholder="Dirección de entrega"></div><div style="display:flex;gap:8px;margin-top:10px"><button type="button" class="btn-ghost btn-sm" id="cancelQuickCustomer">Cancelar</button><button type="button" class="btn-primary btn-sm" id="saveQuickCustomer">Guardar cliente</button></div></div>`:""}
-    </div>
-
-    <div class="field">
-      <label>Productos</label>
-
-      <input
-        id="ob-prod-search"
-        type="text"
-        placeholder="🔎 Buscar platillo..."
-        value="${escapeHtml(state.orderProdSearch||"")}"
-        autocomplete="off"
-        style="margin-bottom:8px"
-      >
-
-      <div class="panel" style="max-height:220px;overflow-y:auto;padding:6px 12px">
-        ${products.map(p=>{ const inCart=state.orderCart.find(l=>l.productId===p.id); const rc=recipeCost(p.id); return `
-          <div class="prod-pick" data-add="${p.id}" style="cursor:pointer">
-            <span>
-              ${escapeHtml(p.name)}
-              <span style="color:var(--dim)">
-                · ${fmt$(p.price)}
-                ${p.stock!==null&&p.stock!==undefined ? ` · stock: ${p.stock}` : ""}${rc>0 ? ` · costo: ${fmt$(rc)}` : ""}
-              </span>
-              ${inCart ? `<b style="color:var(--accent)"> · ${inCart.qty} en carrito</b>` : ""}
-            </span>
-
-            <span style="color:var(--accent);font-weight:700;font-size:18px">+</span>
-          </div>
-        `; }).join("") || '<div class="empty">No hay platillos que coincidan</div>'}
-      </div>
-    </div>
-
-    <div class="row2">
-
+    <section class="order-section">
       <div class="field">
-        <label>Zona de delivery</label>
-
-        <select id="ob-zone">
-          <option value="">Sin delivery</option>
-
-          ${zones.map(z=>`
-            <option
-              value="${z.id}"
-              ${state.orderZone===z.id?"selected":""}
-            >
-              ${escapeHtml(z.name)} — ${fmt$(z.cost)}
-            </option>
-          `).join("")}
-        </select>
+        <label for="ob-cust-search">1. Cliente</label>
+        <input id="ob-cust-search" type="search" placeholder="Nombre, teléfono o dirección" value="${escapeHtml(state.orderCustomerSearch||"")}" autocomplete="off">
+        <input type="hidden" id="ob-cust" value="${state.orderCustomer||""}">
+        ${selectedCustomer ? `<div class="panel selected-customer" style="margin-top:8px;padding:11px;border:1px solid var(--accent)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div style="font-weight:700">✓ ${escapeHtml(selectedCustomer.name)}</div><div style="font-size:12px;color:var(--dim)">${escapeHtml(selectedCustomer.phone||"Sin teléfono")}</div>${selectedCustomer.address?`<div style="font-size:12px;color:var(--dim);margin-top:3px">${escapeHtml(selectedCustomer.address)}</div>`:""}</div><button type="button" class="btn-ghost btn-sm" id="clearOrderCust" aria-label="Quitar cliente">Cambiar</button></div></div>`:""}
+        <div id="orderCustomerResults" class="panel" style="margin-top:7px;padding:6px 10px;max-height:220px;overflow-y:auto">${customerResultsHtml}</div>
+        <button type="button" class="btn-ghost btn-sm" id="quickNewCustomer" style="margin-top:8px;width:100%">＋ Crear cliente rápidamente</button>
+        ${state.quickCustomerOpen?`<div class="panel" style="margin-top:10px;padding:12px"><div style="font-weight:700;margin-bottom:10px">Nuevo cliente</div><div class="field"><label for="qc-name">Nombre *</label><input id="qc-name" placeholder="Nombre y apellido" autocomplete="name"></div><div class="field"><label for="qc-phone">Teléfono</label><input id="qc-phone" type="tel" placeholder="0414-1234567" autocomplete="tel"></div><div class="field"><label for="qc-address">Dirección de entrega</label><input id="qc-address" placeholder="Urbanización, calle, casa..." autocomplete="street-address"></div><div style="display:flex;gap:8px;margin-top:10px"><button type="button" class="btn-ghost" id="cancelQuickCustomer" style="flex:1">Cancelar</button><button type="button" class="btn-primary" id="saveQuickCustomer" style="flex:1">Guardar y usar</button></div></div>`:""}
       </div>
-
+    </section>
+    <section class="order-section">
       <div class="field">
-        <label>Método de pago</label>
-
-        <select id="ob-pay">
-          ${["Efectivo","Pago móvil","Transferencia","Zelle","Divisas","Otro"]
-            .map(m=>`<option>${m}</option>`).join("")}
-        </select>
+        <label for="ob-prod-search">2. Agrega los productos</label>
+        <input id="ob-prod-search" type="search" placeholder="Buscar platillo por nombre…" value="${escapeHtml(state.orderProdSearch||"")}" autocomplete="off" style="margin-bottom:8px">
+        <div id="orderProductList" class="panel" style="max-height:280px;overflow-y:auto;padding:5px 10px">
+          ${products.map(p=>{const inCart=state.orderCart.find(l=>l.productId===p.id);const rc=recipeCost(p.id);return `<button type="button" class="prod-pick product-pick-button" data-add="${p.id}"><span style="display:block;min-width:0"><b style="display:block;font-size:14px">${escapeHtml(p.name)}</b><span style="color:var(--dim);font-size:12px">${fmt$(p.price)} · ${fmtBs(p.price)}${p.stock!==null&&p.stock!==undefined?` · Stock: ${p.stock}`:""}${rc>0?` · Costo: ${fmt$(rc)}`:""}</span>${inCart?`<span style="display:block;color:var(--accent);font-size:12px;font-weight:700;margin-top:2px">En el carrito: ${inCart.qty}</span>`:""}</span><span style="flex:0 0 34px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--bg3);color:var(--accent);font-size:23px;line-height:1">＋</span></button>`;}).join("")||'<div class="empty">No hay platillos disponibles que coincidan con esa búsqueda.</div>'}
+        </div>
       </div>
-
-    </div>
-
-    <div class="field">
-      <label>Descuento (USD, opcional)</label>
-      <input
-        id="ob-disc"
-        type="number"
-        step="0.01"
-        value="${discount||""}"
-      >
-    </div>
-
-    <div class="field">
-      <label>Notas</label>
-      <textarea
-        id="ob-notes"
-        rows="2"
-      >${escapeHtml(state.orderNotes||"")}</textarea>
-    </div>
-
+    </section>
+    <section class="order-section">
+      <div class="row2">
+        <div class="field"><label for="ob-zone">3. Zona de delivery</label><select id="ob-zone"><option value="">Sin delivery</option>${zones.map(z=>`<option value="${z.id}" ${state.orderZone===z.id?"selected":""}>${escapeHtml(z.name)} — ${fmt$(z.cost)}</option>`).join("")}</select></div>
+        <div class="field"><label for="ob-pay">Método de pago</label><select id="ob-pay">${["Efectivo","Pago móvil","Transferencia","Zelle","Divisas","Otro"].map(m=>`<option ${state.orderPayment===m?"selected":""}>${m}</option>`).join("")}</select></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="ob-disc">Descuento (USD, opcional)</label><input id="ob-disc" type="number" inputmode="decimal" min="0" step="0.01" value="${discount||""}" placeholder="0.00"></div>
+        <div class="field"><label for="ob-notes">Notas para cocina / delivery</label><textarea id="ob-notes" rows="2" placeholder="Sin cebolla, llamar al llegar…">${escapeHtml(state.orderNotes||"")}</textarea></div>
+      </div>
+    </section>
    </div>
-
    <div>
-
-    <div class="panel" style="padding:14px">
-
-      <div style="color:var(--dim);font-size:13px;margin-bottom:8px">
-        Carrito
-      </div>
-
-      ${state.orderCart.map((l,i)=>`
-        <div class="cart-line">
-          <span>${escapeHtml(l.name)}</span>
-
-          <span class="qty-ctrl">
-            <button data-dec="${i}">−</button>
-            ${l.qty}
-            <button data-inc="${i}">+</button>
-            ${fmt$(l.price*l.qty)}
-          </span>
-        </div>
-      `).join("") || `
-        <div style="color:var(--dim);font-size:13px">
-          Agrega productos del panel izquierdo
-        </div>
-      `}
-
-      <div style="margin-top:12px">
-
-        <div class="summary-line">
-          <span>Subtotal</span>
-          <span>${fmt$(subtotal)}</span>
-        </div>
-
-        <div class="summary-line">
-          <span>Delivery</span>
-          <span>${fmt$(zone.cost)}</span>
-        </div>
-
-        <div class="summary-line">
-          <span>Descuento</span>
-          <span>-${fmt$(discount)}</span>
-        </div>
-
-        <div class="summary-line total">
-          <span>Total</span>
-          <span>
-            ${fmt$(total)}
-            <span style="color:var(--dim);font-weight:400;font-size:13px">
-              / ${fmtBs(total)}
-            </span>
-          </span>
-        </div>
-
+    <div id="orderCartPanel" class="panel order-cart-panel" style="padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><b style="font-size:15px">Tu carrito</b><span class="badge ${itemCount?'b-completada':'b-pendiente'}">${itemCount} ${itemCount===1?'unidad':'unidades'}</span></div>
+      ${state.orderCart.map((l,i)=>`<div class="cart-line" style="gap:10px;align-items:center"><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${escapeHtml(l.name)}</b><small style="display:block;color:var(--dim)">${fmt$(l.price)} c/u</small></span><span class="qty-ctrl"><button type="button" aria-label="Quitar una unidad de ${escapeHtml(l.name)}" data-dec="${i}">−</button><b>${l.qty}</b><button type="button" aria-label="Agregar una unidad de ${escapeHtml(l.name)}" data-inc="${i}">+</button></span><b style="min-width:62px;text-align:right">${fmt$(l.price*l.qty)}</b></div>`).join("")||`<div class="empty" style="padding:22px 8px"><div style="font-size:26px;margin-bottom:6px">🛒</div>Tu carrito está vacío.<br><span style="font-size:12px">Toca un platillo para agregarlo.</span></div>`}
+      <div style="margin-top:13px;padding-top:9px;border-top:1px solid var(--border)">
+        <div class="summary-line"><span>Subtotal</span><b id="orderSubtotal">${fmt$(subtotal)}</b></div>
+        <div class="summary-line"><span>Delivery</span><span id="orderDelivery">${fmt$(zone.cost)}</span></div>
+        <div class="summary-line"><span>Descuento</span><span id="orderDiscountValue">−${fmt$(discount)}</span></div>
+        <div class="summary-line total"><span>Total</span><span><span id="orderTotalUsd">${fmt$(total)}</span><small id="orderTotalBs" style="display:block;color:var(--dim);font-size:12px;font-weight:400;text-align:right">${fmtBs(total)}</small></span></div>
       </div>
     </div>
-
-    <div class="modal-actions">
-      <button class="btn-ghost" id="cancel">
-        Cancelar
-      </button>
-
-      <button class="btn-primary" id="save-order">
-        Guardar orden
-      </button>
-    </div>
-
+    <div class="modal-actions order-actions"><button type="button" class="btn-ghost" id="cancel">Cancelar</button><button type="button" class="btn-primary" id="save-order">Guardar orden</button></div>
    </div>
   </div>`;
 }
@@ -1374,7 +1250,9 @@ function configView(){
 
 /* ---------- MODALS ---------- */
 function openModal(name){
-  const wrap=document.createElement("div"); wrap.className="overlay"; wrap.id="overlay";
+  const previous=document.getElementById("overlay"); if(previous) previous.remove();
+  const wrap=document.createElement("div"); wrap.className=name==="order"?"overlay order-modal":"overlay"; wrap.id="overlay";
+  document.body.classList.add("modal-open");
   const box=document.createElement("div"); box.className="modal";
   if(name==="prod") { box.style.maxWidth="760px"; box.innerHTML = productFormHtml(state.editingProd); }
   if(name==="cust") box.innerHTML = customerFormHtml(state.editingCust);
@@ -1387,7 +1265,7 @@ function openModal(name){
   wrap.onclick = e=>{ if(e.target===wrap){ closeModal(); } };
   wireModal(name);
 }
-function closeModal(){ state.modal=null; const o=document.getElementById("overlay"); if(o) o.remove(); }
+function closeModal(){ state.modal=null; const o=document.getElementById("overlay"); if(o) o.remove(); document.body.classList.remove("modal-open"); }
 
 function busySave(btn, fn){
   return async ()=>{
@@ -1515,14 +1393,25 @@ if(val.exchange_rate<=0){
     });
   }
   if(name==="order"){
-    document.getElementById("ob-zone").onchange=e=>{ state.orderZone=e.target.value; refreshOrderModal(); };
-    document.getElementById("ob-disc").oninput=e=>{ state.orderDiscount=parseFloat(e.target.value)||0; };
+    document.getElementById("ob-zone").onchange=e=>{ state.orderZone=e.target.value; refreshOrderModal({focusId:"ob-zone"}); };
+    document.getElementById("ob-pay").onchange=e=>{ state.orderPayment=e.target.value; };
+    document.getElementById("ob-disc").oninput=e=>{
+      state.orderDiscount=Math.max(0,parseFloat(e.target.value)||0);
+      const cartSubtotal=state.orderCart.reduce((sum,l)=>sum+l.price*l.qty,0);
+      const delivery=Number((cache.zones.find(z=>z.id===state.orderZone)||{cost:0}).cost||0);
+      const currentTotal=cartSubtotal+delivery-state.orderDiscount;
+      const count=state.orderCart.reduce((sum,l)=>sum+l.qty,0);
+      const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=value;};
+      set("orderSubtotal",fmt$(cartSubtotal)); set("orderDelivery",fmt$(delivery));
+      set("orderDiscountValue","−"+fmt$(state.orderDiscount)); set("orderTotalUsd",fmt$(currentTotal)); set("orderTotalBs",fmtBs(currentTotal));
+      const summary=document.querySelector(".order-mobile-summary");
+      if(summary){ summary.querySelector("strong").textContent=count+" "+(count===1?"producto":"productos")+" · "+fmt$(currentTotal); summary.querySelector("small").textContent=fmtBs(currentTotal)+" · Carrito actualizado"; }
+    };
     document.getElementById("ob-notes").oninput=e=>{ state.orderNotes=e.target.value; };
     const psEl=document.getElementById("ob-prod-search");
     if(psEl) psEl.oninput=e=>{
       state.orderProdSearch=e.target.value; const pos=e.target.selectionStart;
-      refreshOrderModal();
-      const el=document.getElementById("ob-prod-search"); if(el){ el.focus(); el.selectionStart=el.selectionEnd=pos; }
+      refreshOrderModal({focusId:"ob-prod-search",cursorPos:pos});
     };
     document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
       const p=cache.products.find(x=>x.id===b.dataset.add);
@@ -1544,14 +1433,37 @@ if(val.exchange_rate<=0){
     document.getElementById("save-order").onclick=saveOrder;
   }
 }
-function refreshProductModal(){ const box=document.querySelector(".modal"); if(box){ box.innerHTML=productFormHtml(state.editingProd); wireModal("prod"); } }
-function refreshOrderModal(){ const box=document.querySelector(".modal"); box.innerHTML = orderBuilderHtml(); wireModal("order"); }
+function refreshProductModal(){ const box=document.querySelector(".modal"); if(box){ const scroll=box.scrollTop; box.innerHTML=productFormHtml(state.editingProd); wireModal("prod"); box.scrollTop=scroll; } }
+function refreshOrderModal(options={}){
+  const box=document.querySelector(".modal");
+  if(!box) return;
+  const modalScroll=box.scrollTop;
+  const productScroll=document.getElementById("orderProductList")?.scrollTop||0;
+  const active=document.activeElement;
+  const rememberedId=active && box.contains(active) ? active.id : "";
+  const selectionStart=active && typeof active.selectionStart==="number" ? active.selectionStart : null;
+  const focusId=options.focusId || rememberedId;
+  const cursorPos=typeof options.cursorPos==="number"?options.cursorPos:selectionStart;
+  box.innerHTML=orderBuilderHtml();
+  wireModal("order");
+  box.scrollTop=modalScroll;
+  const list=document.getElementById("orderProductList");
+  if(list) list.scrollTop=productScroll;
+  if(focusId){
+    const field=document.getElementById(focusId);
+    if(field){ field.focus({preventScroll:true}); if(cursorPos!==null && typeof field.setSelectionRange==="function"){ try{field.setSelectionRange(cursorPos,cursorPos);}catch(_e){} } }
+  }
+}
 
 async function saveOrder(){
   const custId=document.getElementById("ob-cust").value;
-  if(!custId){ toast("Selecciona un cliente", true); return; }
-  if(state.orderCart.length===0){ toast("Agrega al menos un producto", true); return; }
-  const btn=document.getElementById("save-order"); btn.disabled=true; btn.textContent="Guardando...";
+  if(!custId){ toast("Selecciona un cliente para continuar", true); document.getElementById("ob-cust-search")?.focus({preventScroll:false}); return; }
+  if(state.orderCart.length===0){ toast("Agrega al menos un producto", true); document.getElementById("ob-prod-search")?.focus({preventScroll:false}); return; }
+  const zonePreview=cache.zones.find(z=>z.id===state.orderZone);
+  const subtotalPreview=state.orderCart.reduce((s,l)=>s+l.price*l.qty,0);
+  const discountPreview=Number(state.orderDiscount||0);
+  if(discountPreview>subtotalPreview+Number(zonePreview?.cost||0)){ toast("El descuento no puede ser mayor que el total", true); document.getElementById("ob-disc")?.focus(); return; }
+  const btn=document.getElementById("save-order"); if(!btn) return; btn.disabled=true; btn.textContent="Guardando...";
   const zone=cache.zones.find(z=>z.id===state.orderZone);
   const payment=document.getElementById("ob-pay").value;
   const notes=document.getElementById("ob-notes").value;
@@ -1577,7 +1489,7 @@ async function saveOrder(){
       total: subtotal+(zone?Number(zone.cost):0)-discount, payment, rate: cache.config.exchange_rate, notes
     };
     await Promise.all([loadOrdersAndItems(), loadProducts()]);
-    state.orderCart=[]; state.orderCustomer=null; state.orderZone=""; state.orderDiscount=0; state.orderNotes="";
+    state.orderCart=[]; state.orderCustomer=null; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.orderProdSearch=""; state.orderCustomerSearch=""; state.orderPayment="Pago móvil";
     closeModal(); render();
     showTicketPreview(ticketOrder);
     toast("Orden creada");
@@ -1630,17 +1542,16 @@ function refreshOrderCustomerResults(){
   const results=document.getElementById("orderCustomerResults");
   if(!results) return;
   const search=(state.orderCustomerSearch||"").toLowerCase().trim();
+  if(!search){ results.innerHTML='<div class="empty" style="padding:10px;font-size:12px">Escribe al menos una parte del nombre o teléfono para buscar un cliente.</div>'; return; }
   const customers=cache.customers.filter(c=>{
     if(c.id===state.orderCustomer) return false;
-    if(!search) return true;
-    return (c.name||"").toLowerCase().includes(search) || (c.phone||"").toLowerCase().includes(search) || (c.address||"").toLowerCase().includes(search);
-  }).slice(0,20);
-  results.innerHTML=customers.length?customers.map(c=>`<div class="prod-pick" data-select-order-cust="${c.id}" style="cursor:pointer"><span><b>${escapeHtml(c.name)}</b><span style="color:var(--dim);font-size:12px"> · ${escapeHtml(c.phone||"Sin teléfono")}</span>${c.address?`<div style="color:var(--dim);font-size:11px;margin-top:2px">${escapeHtml(c.address)}</div>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:18px">›</span></div>`).join(""):`<div class="empty" style="padding:12px">No encontramos ese cliente.</div>`;
+    return (c.name||"").toLowerCase().includes(search)||(c.phone||"").toLowerCase().includes(search)||(c.address||"").toLowerCase().includes(search);
+  }).slice(0,8);
+  results.innerHTML=customers.length?customers.map(c=>`<button type="button" class="customer-result" data-select-order-cust="${c.id}"><span><b>${escapeHtml(c.name)}</b><span style="color:var(--dim);font-size:12px"> · ${escapeHtml(c.phone||"Sin teléfono")}</span>${c.address?`<span style="display:block;color:var(--dim);font-size:11px;margin-top:2px">${escapeHtml(c.address)}</span>`:""}</span><span style="color:var(--accent);font-weight:700;font-size:21px">›</span></button>`).join(""):'<div class="empty" style="padding:12px">No encontramos ese cliente. Comprueba los datos o crea uno nuevo.</div>';
 }
-
 /* ---------- EVENTOS GLOBALES ---------- */
 document.addEventListener("click", async e=>{
-  const t=e.target;
+  const t=(e.target && e.target.closest) ? (e.target.closest("button,[data-add],[data-select-order-cust],[data-del-recipe],[data-ticket],[data-edit-prod],[data-del-prod],[data-edit-inv],[data-add-stock],[data-waste-stock],[data-edit-cust],[data-del-cust],[data-edit-prov],[data-del-prov],[data-edit-exp],[data-del-exp],[data-save-zone],[data-del-zone],[data-financial-range-open],[data-cal-month-nav],[data-cal-day],[data-cal-year],[data-cal-month],[data-order-cal-nav],[data-order-cal-day],[data-order-cal-clear]") || e.target) : e.target;
     /* ---------- CLIENTE RÁPIDO EN NUEVA ORDEN ---------- */
 
   if(t.closest("#quickNewCustomer")){
@@ -1800,7 +1711,8 @@ document.addEventListener("click", async e=>{
   if(t.dataset.editExp){ state.editingExp=cache.expenses.find(x=>x.id===t.dataset.editExp); state.modal="exp"; render(); }
   if(t.dataset.delExp){ if(confirm("¿Eliminar este gasto?")){ try{ await Api.remove("expenses", t.dataset.delExp); await loadExpenses(); render(); }catch(e){ toast(friendlyError(e), true); } } }
 
-  if(t.id==="newOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderCustomerSearch=""; state.quickCustomerOpen=false; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.orderProdSearch=""; state.modal="order"; render(); }
+  if(t.id==="newOrder" || t.id==="quickNewOrder"){ state.orderCart=[]; state.orderCustomer=null; state.orderCustomerSearch=""; state.quickCustomerOpen=false; state.orderZone=""; state.orderDiscount=0; state.orderNotes=""; state.orderProdSearch=""; state.orderPayment="Pago móvil"; state.modal="order"; render(); return; }
+  if(t.id==="scrollOrderCart"){ document.getElementById("orderCartPanel")?.scrollIntoView({behavior:"smooth",block:"start"}); return; }
   if(t.dataset.ticket){ const o=cache.orders.find(x=>x.id===t.dataset.ticket); if(o) openTicketForOrder(o); }
 
   if(t.id==="refreshBcvRate"){
@@ -1941,6 +1853,23 @@ document.addEventListener("input", e=>{
     if(usdInput){
       usdInput.value=usd>0 ? usd.toFixed(2) : "";
     }
+  }
+});
+
+
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){
+    if(document.getElementById("overlay")){ closeModal(); return; }
+    if(state.mobileMoreOpen){ state.mobileMoreOpen=false; render(); }
+  }
+});
+document.addEventListener("click",e=>{
+  if(!state.mobileMoreOpen) return;
+  const menu=document.getElementById("mobile-more-menu");
+  const nav=document.getElementById("mobile-nav");
+  if(menu && nav && !menu.contains(e.target) && !nav.contains(e.target)){
+    state.mobileMoreOpen=false;
+    render();
   }
 });
 
