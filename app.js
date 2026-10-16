@@ -176,7 +176,7 @@ function initRealtime(){
 }
 
 /* ---------- estado ---------- */
-let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialRangeStart:todayCaracas(), financialRangeEnd:todayCaracas(), financialRangeTarget:"start", financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), orderCalendarOpen:false, orderCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false };
+let state = { user:null, route:"loading", modal:null, orderCart:[], orderCustomer:null, orderCustomerSearch:"", quickCustomerOpen:false, orderZone:"", orderDiscount:0, orderNotes:"", filterStatus:"", search:"", orderDateFilter:"", financialPeriod:"day", financialDate:todayCaracas(), financialRangeStart:todayCaracas(), financialRangeEnd:todayCaracas(), financialRangeTarget:"start", financialCalendarOpen:false, financialCalendarCursor:todayCaracas().slice(0,7), orderCalendarOpen:false, orderCalendarCursor:todayCaracas().slice(0,7), showAllTopProducts:false, inventorySearch:"", inventoryLowOnly:false, mobileMoreOpen:false };
 
 async function initApp(){
   try{
@@ -195,10 +195,25 @@ async function initApp(){
 }
 
 /* ---------- RENDER ---------- */
+function enhanceMobileTables(){
+  document.querySelectorAll("#root table").forEach(table=>{
+    const headers=Array.from(table.querySelectorAll("thead tr:first-child th"))
+      .map((th,i)=>th.textContent.trim() || (i===table.querySelectorAll("thead tr:first-child th").length-1 ? "Acciones" : "Detalle"));
+    table.querySelectorAll("tbody tr").forEach(row=>{
+      Array.from(row.cells).forEach((cell,index)=>{
+        if(cell.hasAttribute("colspan")) return;
+        if(!cell.dataset.label) cell.dataset.label=headers[index] || "Detalle";
+        if(cell.querySelector("button")) cell.classList.add("mobile-actions");
+      });
+    });
+  });
+}
+
 function render(){
   const root=document.getElementById("root");
   if(state.route==="loading"){ root.innerHTML = `<div id="login"><div class="login-box c" style="text-align:center">Cargando…</div></div>`; return; }
   root.innerHTML = state.route==="login" ? loginView() : shellView();
+  enhanceMobileTables();
   wireLogin(); wireShell();
   if(state.modal) openModal(state.modal);
 }
@@ -228,33 +243,61 @@ function wireLogin(){
   document.getElementById("lp").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 }
 
-const NAV = [["dashboard","📊 Dashboard"],["ordenes","🧾 Órdenes"],["productos","🍗 Platillos"],["inventario","📦 Inventario"],["clientes","👤 Clientes"],["gastos","💸 Gastos"],["proveedores","🏭 Proveedores"],["config","⚙️ Configuración"]];
+const NAV = [
+  ["dashboard","📊","Dashboard"],
+  ["ordenes","🧾","Órdenes"],
+  ["inventario","📦","Inventario"],
+  ["gastos","💸","Gastos"],
+  ["productos","🍗","Platillos"],
+  ["clientes","👤","Clientes"],
+  ["proveedores","🏭","Proveedores"],
+  ["config","⚙️","Configuración"]
+];
+const MOBILE_PRIMARY_NAV = ["dashboard","ordenes","inventario","gastos"];
 
 function shellView(){
   const views = { dashboard:dashboardView, ordenes:ordenesView, productos:productosView, inventario:inventarioView, clientes:clientesView, gastos:gastosView, proveedores:proveedoresView, config:configView };
   const body = (views[state.route]||dashboardView)();
+  const mobilePrimary = NAV.filter(([key])=>MOBILE_PRIMARY_NAV.includes(key));
+  const mobileSecondary = NAV.filter(([key])=>!MOBILE_PRIMARY_NAV.includes(key));
+  const moreIsActive = mobileSecondary.some(([key])=>key===state.route);
   return `<div id="shell">
     <div id="sidebar">
       ${logoHtml(36)}<div class="tag">Administración</div>
-      ${NAV.map(([k,l])=>`<button class="nav-item ${state.route===k?'active':''}" data-nav="${k}">${l}</button>`).join("")}
+      ${NAV.map(([k,icon,label])=>`<button class="nav-item ${state.route===k?'active':''}" data-nav="${k}">${icon} ${label}</button>`).join("")}
       <button class="btn-ghost" id="logout">Cerrar sesión</button>
     </div>
     <main>${body}</main>
-    <div id="mobile-nav">${NAV.map(([k,l])=>{ const sp=l.indexOf(" "); const icon=l.slice(0,sp), label=l.slice(sp+1); return `<button class="${state.route===k?'active':''}" data-nav="${k}"><span style="font-size:18px">${icon}</span><span style="font-size:9px">${label}</span></button>`; }).join("")}</div>
+    ${state.mobileMoreOpen ? `<button id="mobile-more-backdrop" aria-label="Cerrar menú de secciones"></button><div id="mobile-more-menu" role="menu" aria-label="Más secciones"><div class="more-title">MÁS SECCIONES</div>${mobileSecondary.map(([k,icon,label])=>`<button role="menuitem" class="${state.route===k?'active':''}" data-nav="${k}"><span class="more-icon">${icon}</span><span>${label}</span></button>`).join("")}<button id="mobile-logout" type="button"><span class="more-icon">↪</span><span>Cerrar sesión</span></button></div>` : ""}
+    <div id="mobile-nav" aria-label="Navegación principal">
+      ${mobilePrimary.map(([k,icon,label])=>{
+        const shortLabel = k==="dashboard" ? "Inicio" : (k==="inventario" ? "Stock" : label);
+        return `<button type="button" class="${state.route===k?'active':''}" data-nav="${k}" aria-label="${label}" title="${label}"><span class="mobile-nav-icon" aria-hidden="true">${icon}</span><span class="mobile-nav-label">${shortLabel}</span></button>`;
+      }).join("")}
+      <button type="button" id="mobile-more-toggle" class="${moreIsActive || state.mobileMoreOpen?'active':''}" aria-label="Más secciones" aria-expanded="${state.mobileMoreOpen?'true':'false'}" title="Más secciones"><span class="mobile-nav-icon" aria-hidden="true">⋯</span><span class="mobile-nav-label">Más</span></button>
+    </div>
   </div>`;
 }
 function wireShell(){
   document.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>{
     state.route=b.dataset.nav;
+    state.mobileMoreOpen=false;
     state.modal=null;
     state.search="";
     state.filterStatus="";
     state.inventorySearch="";
     state.inventoryLowOnly=false;
     render();
+    window.scrollTo({top:0,behavior:"smooth"});
   });
+  const moreToggle=document.getElementById("mobile-more-toggle");
+  if(moreToggle) moreToggle.onclick=()=>{ state.mobileMoreOpen=!state.mobileMoreOpen; render(); };
+  const backdrop=document.getElementById("mobile-more-backdrop");
+  if(backdrop) backdrop.onclick=()=>{ state.mobileMoreOpen=false; render(); };
   const lo=document.getElementById("logout");
   if(lo) lo.onclick=()=>sb.auth.signOut();
+  const mobileLogout=document.getElementById("mobile-logout");
+  if(mobileLogout) mobileLogout.onclick=()=>{ state.mobileMoreOpen=false; sb.auth.signOut(); };
 }
 
 function statusLabel(s){
@@ -399,7 +442,7 @@ function financialControlsHtml(){
 }
 
 const FINANCIAL_CALENDAR_CSS = `<style>
-.financial-picker-wrap{position:relative;z-index:1001;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left;white-space:nowrap}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:99999;right:0;top:calc(100% + 6px);margin-top:0;width:290px;max-width:min(290px,calc(100vw - 32px));padding:12px;background:var(--bg2,#222);color:var(--text,#fff);border:1px solid var(--border,#444);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.45);box-sizing:border-box}.financial-calendar *{box-sizing:border-box}.financial-calendar .cal-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;margin:0 0 10px!important}.financial-calendar .cal-head button{min-width:30px!important;width:30px!important;height:30px!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 30px!important}.financial-calendar .cal-weekdays{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;gap:4px!important;font-size:11px!important;color:var(--dim,#aaa)!important;text-align:center!important;margin:0 0 5px!important}.financial-calendar .cal-grid{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;grid-auto-rows:32px!important;gap:4px!important;width:100%!important}.financial-calendar .cal-day{appearance:none!important;-webkit-appearance:none!important;border:0!important;min-width:0!important;width:100%!important;height:32px!important;min-height:32px!important;max-height:32px!important;padding:0!important;margin:0!important;display:flex!important;align-items:center!important;justify-content:center!important;line-height:1!important;font-size:13px!important;font-weight:500!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;box-shadow:none!important;cursor:pointer!important}.financial-calendar .cal-day:hover{background:var(--bg3,#333)!important}.financial-calendar .cal-day.muted{color:var(--dim,#aaa)!important;opacity:.45!important}.financial-calendar .cal-day.active,.financial-calendar .cal-month.active{background:var(--accent,#f10)!important;color:#111!important;font-weight:700!important}.financial-calendar .cal-day.between{background:var(--bg3,#333)!important;color:var(--text,#fff)!important}.financial-calendar .cal-month-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}.financial-calendar .cal-month{appearance:none!important;border:0!important;min-width:0!important;padding:10px 5px!important;font-size:12px!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;cursor:pointer!important}.financial-calendar .cal-month:hover{background:var(--bg3,#333)!important}.financial-calendar .btn-ghost{color:var(--text,#fff)!important;background:transparent!important;border:1px solid var(--border,#444)!important}.order-date-picker{min-width:156px!important;z-index:1000}.order-calendar{left:0;right:auto;top:calc(100% + 6px)}</style>`;
+.financial-picker-wrap{position:relative;z-index:1001;min-width:190px}.financial-picker-btn{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text,#fff);cursor:pointer;text-align:left;white-space:nowrap}.financial-picker-btn:hover{border-color:var(--accent)}.financial-calendar{position:absolute;z-index:99999;right:0;top:calc(100% + 6px);margin-top:0;width:290px;max-width:min(290px,calc(100vw - 32px));padding:12px;background:var(--bg2,#222);color:var(--text,#fff);border:1px solid var(--border,#444);border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.45);box-sizing:border-box}.financial-calendar *{box-sizing:border-box}.financial-calendar .cal-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;margin:0 0 10px!important}.financial-calendar .cal-head button{min-width:30px!important;width:30px!important;height:30px!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 30px!important}.financial-calendar .cal-weekdays{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;gap:4px!important;font-size:11px!important;color:var(--dim,#aaa)!important;text-align:center!important;margin:0 0 5px!important}.financial-calendar .cal-grid{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;grid-auto-rows:32px!important;gap:4px!important;width:100%!important}.financial-calendar .cal-day{appearance:none!important;-webkit-appearance:none!important;border:0!important;min-width:0!important;width:100%!important;height:32px!important;min-height:32px!important;max-height:32px!important;padding:0!important;margin:0!important;display:flex!important;align-items:center!important;justify-content:center!important;line-height:1!important;font-size:13px!important;font-weight:500!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;box-shadow:none!important;cursor:pointer!important}.financial-calendar .cal-day:hover{background:var(--bg3,#333)!important}.financial-calendar .cal-day.muted{color:var(--dim,#aaa)!important;opacity:.45!important}.financial-calendar .cal-day.active,.financial-calendar .cal-month.active{background:var(--accent,#f10)!important;color:#111!important;font-weight:700!important}.financial-calendar .cal-day.between{background:var(--bg3,#333)!important;color:var(--text,#fff)!important}.financial-calendar .cal-month-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}.financial-calendar .cal-month{appearance:none!important;border:0!important;min-width:0!important;padding:10px 5px!important;font-size:12px!important;background:transparent!important;color:var(--text,#fff)!important;border-radius:7px!important;cursor:pointer!important}.financial-calendar .cal-month:hover{background:var(--bg3,#333)!important}.financial-calendar .btn-ghost{color:var(--text,#fff)!important;background:transparent!important;border:1px solid var(--border,#444)!important}.order-date-picker{min-width:156px!important;z-index:1000}.order-calendar{left:0;right:auto;top:calc(100% + 6px)}@media(max-width:820px){.financial-calendar{position:fixed!important;left:50%!important;right:auto!important;top:auto!important;bottom:calc(76px + env(safe-area-inset-bottom))!important;transform:translateX(-50%);width:min(320px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 110px);overflow:auto}.order-calendar{left:50%!important;right:auto!important}}</style>`;
 
 /* ---------- DASHBOARD ---------- */
 function dashboardView(){
